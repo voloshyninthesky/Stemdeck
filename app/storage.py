@@ -1,39 +1,37 @@
-import os
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
-from minio import Minio
-from minio.error import S3Error
+from app import config
 
-
-def _truthy(value: str | None, default: bool = False) -> bool:
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+try:
+    from minio import Minio
+except ImportError:  # Local-only mode should still boot without MinIO installed.
+    Minio = None  # type: ignore[assignment]
 
 
-STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "local").strip().lower()
-STORAGE_ENDPOINT = os.getenv("STORAGE_ENDPOINT", "").strip()
-STORAGE_ACCESS_KEY = os.getenv("STORAGE_ACCESS_KEY", "stemdeck")
-STORAGE_SECRET_KEY = os.getenv("STORAGE_SECRET_KEY", "stemdeck-secret")
-STORAGE_BUCKET = os.getenv("STORAGE_BUCKET", "stemdeck")
-STORAGE_SECURE = _truthy(os.getenv("STORAGE_SECURE"), False)
+class StorageUnavailable(RuntimeError):
+    pass
 
-_client: Minio | None = None
+
+_client: Any | None = None
 
 
 def is_object_storage_enabled() -> bool:
-    return STORAGE_BACKEND == "minio" and bool(STORAGE_ENDPOINT)
+    return config.STORAGE_BACKEND == "minio" and bool(config.STORAGE_ENDPOINT)
 
 
-def client() -> Minio:
+def client() -> Any:
     global _client
+    if Minio is None:
+        raise StorageUnavailable("MinIO support is not installed")
     if _client is None:
         _client = Minio(
-            STORAGE_ENDPOINT,
-            access_key=STORAGE_ACCESS_KEY,
-            secret_key=STORAGE_SECRET_KEY,
-            secure=STORAGE_SECURE,
+            config.STORAGE_ENDPOINT,
+            access_key=config.STORAGE_ACCESS_KEY,
+            secret_key=config.STORAGE_SECRET_KEY,
+            secure=config.STORAGE_SECURE,
         )
     return _client
 
@@ -43,8 +41,8 @@ def ensure_bucket() -> None:
         return
 
     c = client()
-    if not c.bucket_exists(STORAGE_BUCKET):
-        c.make_bucket(STORAGE_BUCKET)
+    if not c.bucket_exists(config.STORAGE_BUCKET):
+        c.make_bucket(config.STORAGE_BUCKET)
 
 
 def put_file(local_path: Path, object_name: str) -> str:
@@ -52,7 +50,7 @@ def put_file(local_path: Path, object_name: str) -> str:
         return ""
 
     ensure_bucket()
-    client().fput_object(STORAGE_BUCKET, object_name, str(local_path))
+    client().fput_object(config.STORAGE_BUCKET, object_name, str(local_path))
     return object_name
 
 
@@ -62,14 +60,14 @@ def remove_prefix(prefix: str) -> None:
 
     c = client()
     try:
-        for item in c.list_objects(STORAGE_BUCKET, prefix=prefix, recursive=True):
-            c.remove_object(STORAGE_BUCKET, item.object_name)
-    except S3Error:
+        for item in c.list_objects(config.STORAGE_BUCKET, prefix=prefix, recursive=True):
+            c.remove_object(config.STORAGE_BUCKET, item.object_name)
+    except Exception:
         return
 
 
 def object_size(object_name: str) -> int:
-    return int(client().stat_object(STORAGE_BUCKET, object_name).size)
+    return int(client().stat_object(config.STORAGE_BUCKET, object_name).size)
 
 
 def stream_object(
@@ -79,7 +77,7 @@ def stream_object(
     length: int | None = None,
 ) -> Iterator[bytes]:
     response = client().get_object(
-        STORAGE_BUCKET,
+        config.STORAGE_BUCKET,
         object_name,
         offset=offset,
         length=length,

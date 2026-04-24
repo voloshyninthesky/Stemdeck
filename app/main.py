@@ -1,27 +1,31 @@
-import os
 import threading
 import uuid
 import shutil
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
-from fastapi import Cookie, Depends, FastAPI, File, Form, Header, HTTPException, Response, UploadFile
+from fastapi import (
+    Cookie,
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Response,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from app import config
 from app import db
 from app import storage
+from app.range_response import parse_byte_range, stream_local_file
 from app.tasks import process_job
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = Path(os.getenv("APP_DATA_DIR", BASE_DIR))
-JOBS_DIR = DATA_DIR / "jobs"
-WEB_DIR = BASE_DIR / "web"
-SESSION_COOKIE = "vocals_session"
-SESSION_DAYS = int(os.getenv("SESSION_DAYS", "30"))
-
-JOBS_DIR.mkdir(parents=True, exist_ok=True)
+config.JOBS_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(
     title="Vocal Remover App API",
@@ -37,7 +41,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.mount("/assets", StaticFiles(directory=WEB_DIR), name="assets")
+app.mount("/assets", StaticFiles(directory=config.WEB_DIR), name="assets")
 
 
 @app.on_event("startup")
@@ -48,26 +52,29 @@ def startup() -> None:
 
 @app.get("/")
 def root() -> FileResponse:
-    return FileResponse(WEB_DIR / "index.html")
+    return FileResponse(config.WEB_DIR / "index.html")
 
 
 @app.get("/manifest.webmanifest")
 def manifest() -> FileResponse:
-    return FileResponse(WEB_DIR / "manifest.webmanifest")
+    return FileResponse(config.WEB_DIR / "manifest.webmanifest")
 
 
 @app.get("/sw.js")
 def service_worker() -> FileResponse:
-    return FileResponse(WEB_DIR / "sw.js")
+    return FileResponse(config.WEB_DIR / "sw.js")
 
 
 @app.get("/icons/{name}")
 def icon(name: str) -> FileResponse:
-    return FileResponse(WEB_DIR / "icons" / name)
+    icon_path = config.WEB_DIR / "icons" / Path(name).name
+    if not icon_path.exists():
+        raise HTTPException(status_code=404, detail="Icon not found")
+    return FileResponse(icon_path)
 
 
 def current_user(
-    vocals_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+    vocals_session: str | None = Cookie(default=None, alias=config.SESSION_COOKIE),
 ) -> dict[str, Any]:
     user = db.get_user_by_session(vocals_session)
     if not user:
@@ -103,59 +110,6 @@ def serialize_job(job: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def parse_byte_range(
-    range_header: str | None,
-    total_size: int,
-    filename: str,
-) -> tuple[int, int, int, dict[str, str]]:
-    start = 0
-    end = total_size - 1
-    status_code = 200
-    headers = {
-        "Accept-Ranges": "bytes",
-        "Content-Disposition": f'inline; filename="{filename}"',
-    }
-
-    if range_header and range_header.startswith("bytes="):
-        raw_range = range_header.removeprefix("bytes=").split(",", 1)[0]
-        raw_start, _, raw_end = raw_range.partition("-")
-        try:
-            if raw_start:
-                start = int(raw_start)
-                if raw_end:
-                    end = int(raw_end)
-            elif raw_end:
-                suffix_length = int(raw_end)
-                start = max(0, total_size - suffix_length)
-            else:
-                raise ValueError
-        except ValueError as exc:
-            raise HTTPException(status_code=416, detail="Range not satisfiable") from exc
-
-        end = min(end, total_size - 1)
-        if start > end or start >= total_size:
-            raise HTTPException(status_code=416, detail="Range not satisfiable")
-
-        status_code = 206
-        headers["Content-Range"] = f"bytes {start}-{end}/{total_size}"
-
-    length = end - start + 1
-    headers["Content-Length"] = str(length)
-    return start, length, status_code, headers
-
-
-def stream_local_file(path: Path, offset: int, length: int) -> Iterator[bytes]:
-    remaining = length
-    with path.open("rb") as f:
-        f.seek(offset)
-        while remaining > 0:
-            chunk = f.read(min(1024 * 1024, remaining))
-            if not chunk:
-                break
-            remaining -= len(chunk)
-            yield chunk
-
-
 def enqueue_job(job_id: str) -> None:
     try:
         process_job.delay(job_id)
@@ -183,11 +137,11 @@ def register(
 
     token = db.create_session(user["id"])
     response.set_cookie(
-        SESSION_COOKIE,
+        config.SESSION_COOKIE,
         token,
         httponly=True,
         samesite="lax",
-        max_age=60 * 60 * 24 * SESSION_DAYS,
+        max_age=60 * 60 * 24 * config.SESSION_DAYS,
     )
     return {"user": user}
 
@@ -204,11 +158,11 @@ def login(
 
     token = db.create_session(user["id"])
     response.set_cookie(
-        SESSION_COOKIE,
+        config.SESSION_COOKIE,
         token,
         httponly=True,
         samesite="lax",
-        max_age=60 * 60 * 24 * SESSION_DAYS,
+        max_age=60 * 60 * 24 * config.SESSION_DAYS,
     )
     return {"user": user}
 
@@ -216,11 +170,11 @@ def login(
 @app.post("/api/logout")
 def logout(
     response: Response,
-    vocals_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+    vocals_session: str | None = Cookie(default=None, alias=config.SESSION_COOKIE),
 ) -> dict[str, str]:
     if vocals_session:
         db.delete_session(vocals_session)
-    response.delete_cookie(SESSION_COOKIE)
+    response.delete_cookie(config.SESSION_COOKIE)
     return {"status": "ok"}
 
 
@@ -302,7 +256,11 @@ def delete_job(
         raise HTTPException(status_code=404, detail="Job not found")
 
     job_dir = Path(job["job_dir"])
-    if job_dir.exists() and job_dir.is_relative_to(JOBS_DIR):
+    try:
+        inside_jobs = job_dir.resolve().is_relative_to(config.JOBS_DIR)
+    except ValueError:
+        inside_jobs = False
+    if job_dir.exists() and inside_jobs:
         shutil.rmtree(job_dir, ignore_errors=True)
     storage.remove_prefix(f"{job_id}/")
 
@@ -319,7 +277,7 @@ async def create_job(
         raise HTTPException(status_code=400, detail="Missing file name")
 
     job_id = str(uuid.uuid4())
-    job_dir = JOBS_DIR / job_id
+    job_dir = config.JOBS_DIR / job_id
     input_dir = job_dir / "input"
     input_dir.mkdir(parents=True, exist_ok=True)
 

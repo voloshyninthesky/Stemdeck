@@ -1,7 +1,8 @@
-const CACHE_NAME = "stemdeck-v13";
+const CACHE_NAME = "stemdeck-v14";
 const SHELL_ASSETS = [
   "/",
   "/assets/style.css",
+  "/assets/i18n.js",
   "/assets/app.js",
   "/manifest.webmanifest",
   "/icons/icon.svg",
@@ -36,6 +37,7 @@ self.addEventListener("fetch", (event) => {
   // Always prefer network for app shell assets to prevent HTML/JS version mismatch.
   if (
     url.pathname === "/" ||
+    url.pathname === "/assets/i18n.js" ||
     url.pathname === "/assets/app.js" ||
     url.pathname === "/assets/style.css" ||
     url.pathname === "/manifest.webmanifest"

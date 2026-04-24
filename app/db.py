@@ -1,15 +1,14 @@
 import hashlib
-import os
 import secrets
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = Path(os.getenv("APP_DATA_DIR", BASE_DIR))
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-DB_PATH = DATA_DIR / "app_data.sqlite3"
+from app import config
+
+config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+DB_PATH = config.DB_PATH
 
 
 def _now() -> str:
@@ -17,8 +16,9 @@ def _now() -> str:
 
 
 def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
 
@@ -85,6 +85,7 @@ def init_db() -> None:
             if column not in columns:
                 conn.execute(statement)
 
+
 def hash_password(password: str, salt: str | None = None) -> str:
     salt = salt or secrets.token_hex(16)
     digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 120_000)
@@ -139,8 +140,7 @@ def authenticate_user(username: str, password: str) -> dict[str, Any] | None:
 
 def create_session(user_id: int) -> str:
     token = secrets.token_urlsafe(32)
-    session_days = int(os.getenv("SESSION_DAYS", "30"))
-    expires_at = (datetime.now(UTC) + timedelta(days=session_days)).isoformat()
+    expires_at = (datetime.now(UTC) + timedelta(days=config.SESSION_DAYS)).isoformat()
     with _connect() as conn:
         conn.execute(
             """
@@ -184,6 +184,9 @@ def create_job(
     input_key: str = "",
     separation_mode: str = "fast",
 ) -> dict[str, Any]:
+    if separation_mode not in {"fast", "quality"}:
+        raise ValueError("Invalid separation mode")
+
     now = _now()
     with _connect() as conn:
         conn.execute(
@@ -215,6 +218,23 @@ def create_job(
 def update_job(job_id: str, **fields: Any) -> None:
     if not fields:
         return
+
+    allowed_fields = {
+        "input_key",
+        "instrumental_path",
+        "instrumental_key",
+        "vocals_path",
+        "vocals_key",
+        "duration",
+        "status",
+        "progress",
+        "message",
+        "error",
+        "completed_at",
+    }
+    unknown_fields = set(fields) - allowed_fields
+    if unknown_fields:
+        raise ValueError(f"Unknown job fields: {', '.join(sorted(unknown_fields))}")
 
     fields["updated_at"] = _now()
     assignments = ", ".join(f"{key} = ?" for key in fields)

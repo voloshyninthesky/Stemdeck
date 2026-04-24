@@ -15,7 +15,7 @@ Features:
 ## Stack
 
 - Backend: FastAPI + SQLite + Celery/RabbitMQ + Demucs + Audio Separator
-- Frontend: Vanilla HTML/CSS/JS
+- Frontend: Vanilla HTML/CSS/JS with English/Ukrainian UI strings
 - Storage: persistent SQLite sessions/jobs plus MinIO S3-compatible object storage in Docker
 
 ## Setup
@@ -131,8 +131,9 @@ Start the stack:
 docker compose up -d --build
 ```
 
-RabbitMQ management is bound to `127.0.0.1:15672` by default. Example Nginx location:
+RabbitMQ management is bound to `127.0.0.1:15672` by default.
 MinIO console is bound to `127.0.0.1:9001` by default.
+Example Nginx location:
 
 ```nginx
 location / {
@@ -151,6 +152,18 @@ docker compose logs -f web worker
 docker compose restart worker
 docker compose pull && docker compose up -d --build
 ```
+
+### Native systemd services
+
+If you prefer to run without Docker, systemd service templates are included in `deploy/systemd/`.
+They cover:
+
+- `stemdeck-web.service`: FastAPI app on `127.0.0.1:8000` by default
+- `stemdeck-worker.service`: Celery audio processing worker
+- `stemdeck.target`: starts web and worker together
+- `stemdeck-minio.service`: optional local S3-compatible MinIO storage
+
+See `deploy/systemd/README.md` for install commands, environment files, and operational commands.
 
 ## API
 

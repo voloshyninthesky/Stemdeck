@@ -1,0 +1,27 @@
+[Unit]
+Description=Stemdeck FastAPI web app
+Documentation=https://github.com/your-org/stemdeck
+After=network-online.target rabbitmq-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=stemdeck
+Group=stemdeck
+WorkingDirectory=/opt/stemdeck
+EnvironmentFile=/etc/stemdeck/stemdeck.env
+ExecStart=/opt/stemdeck/.venv/bin/python -m uvicorn app.main:app --host ${APP_HOST} --port ${APP_PORT}
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGINT
+
+# Keep runtime writes in explicit app/cache directories.
+ReadWritePaths=/var/lib/stemdeck /var/cache/stemdeck
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

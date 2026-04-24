@@ -1,4 +1,3 @@
-import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -8,15 +7,9 @@ import soundfile as sf
 import torch
 from demucs.separate import main as demucs_separate
 
+from app import config
+
 ProgressCallback = Callable[[int, str], None]
-FAST_MODEL_NAME = os.getenv("FAST_SEPARATOR_MODEL", "UVR-MDX-NET-Voc_FT.onnx")
-
-
-def truthy_env(name: str, default: bool = False) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def convert_to_wav(input_path: Path, output_path: Path) -> None:
@@ -56,7 +49,7 @@ def separate_audio(
 
     vocals_out = exports / "vocals.wav"
     instrumental_out = exports / "instrumental.wav"
-    if truthy_env("REUSE_PROCESSED_OUTPUTS", True) and outputs_are_ready(
+    if config.truthy_env("REUSE_PROCESSED_OUTPUTS", True) and outputs_are_ready(
         instrumental_out,
         vocals_out,
     ):
@@ -142,12 +135,7 @@ def run_fast_separator(
 
     fast_dir = job_dir / "uvr_fast"
     fast_dir.mkdir(parents=True, exist_ok=True)
-    model_dir = Path(
-        os.getenv(
-            "FAST_SEPARATOR_MODEL_DIR",
-            os.getenv("XDG_CACHE_HOME", str(job_dir / "models")),
-        )
-    )
+    model_dir = config.FAST_SEPARATOR_MODEL_DIR
     model_dir.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -163,7 +151,7 @@ def run_fast_separator(
             output_format="WAV",
             model_file_dir=str(model_dir),
         )
-    separator.load_model(model_filename=FAST_MODEL_NAME)
+    separator.load_model(model_filename=config.FAST_SEPARATOR_MODEL)
     separated_files = separator.separate(str(audio_wav))
     separated_paths = [
         Path(path) if Path(path).is_absolute() else fast_dir / path
