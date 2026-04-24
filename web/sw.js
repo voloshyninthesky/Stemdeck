@@ -1,4 +1,4 @@
-const CACHE_NAME = "stemdeck-v7";
+const CACHE_NAME = "stemdeck-v13";
 const SHELL_ASSETS = [
   "/",
   "/assets/style.css",

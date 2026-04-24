@@ -6,6 +6,7 @@ const registerBtn = document.getElementById("registerBtn");
 const accountBar = document.getElementById("accountBar");
 const usernameLabel = document.getElementById("usernameLabel");
 const logoutBtn = document.getElementById("logoutBtn");
+const languageButtons = document.querySelectorAll("[data-lang]");
 const appSection = document.getElementById("appSection");
 const audioFile = document.getElementById("audioFile");
 const fastMode = document.getElementById("fastMode");
@@ -25,6 +26,110 @@ const vocalsMute = document.getElementById("vocalsMute");
 const downloadInstrumental = document.getElementById("downloadInstrumental");
 const downloadVocals = document.getElementById("downloadVocals");
 
+const translations = {
+  en: {
+    heroTitle: "Extract vocal or instrumental",
+    logout: "Logout",
+    username: "Username",
+    password: "Password",
+    login: "Login",
+    createAccount: "Sign up",
+    authPrompt: "Log in to see your tracks.",
+    newSplit: "New",
+    dropFile: "Upload audio or video",
+    process: "Process",
+    fastModeTitle: "Fast",
+    fastModeHelp: "Quick result. Turn off for higher quality.",
+    chooseFile: "Choose a file.",
+    library: "Library",
+    pastUploads: "Tracks",
+    refresh: "Refresh",
+    mixer: "Mixer",
+    player: "Player",
+    play: "Play",
+    pause: "Pause",
+    instrumental: "Instrumental",
+    vocals: "Vocals",
+    mute: "Mute",
+    unmute: "Unmute",
+    downloadInstrumental: "Download music",
+    downloadVocals: "Download vocal",
+    noUploads: "No uploads yet.",
+    loaded: "Loaded",
+    delete: "Delete",
+    confirmDelete: (filename) => `Delete "${filename}" from your account?`,
+    songDeleted: "Song deleted.",
+    chooseFileFirst: "Choose a file first.",
+    uploading: "Uploading...",
+    jobQueued: "Queued.",
+    loginProgress: "Logging in...",
+    createAccountProgress: "Signing up...",
+    readyToStart: "Choose a file.",
+    queued: (position) =>
+      `${position ? `Queue: ${position}. ` : ""}Waiting. You can close this page.`,
+    processing: "Processing. You can close this page.",
+    ready: (mode) => `Ready · ${mode === "fast" ? "Fast" : "High quality"} mode`,
+    failed: "Processing failed.",
+    error: (message) => `Error: ${message}`,
+  },
+  uk: {
+    heroTitle: "Витягти вокал або інструментал",
+    logout: "Вийти",
+    username: "Логін",
+    password: "Пароль",
+    login: "Увійти",
+    createAccount: "Реєстрація",
+    authPrompt: "Увійдіть, щоб бачити треки.",
+    newSplit: "Новий",
+    dropFile: "Аудіо або відео",
+    process: "Запустити",
+    fastModeTitle: "Швидко",
+    fastModeHelp: "Для швидкого результату. Вимкніть для якості.",
+    chooseFile: "Оберіть файл.",
+    library: "Архів",
+    pastUploads: "Треки",
+    refresh: "Оновити",
+    mixer: "Мікшер",
+    player: "Плеєр",
+    play: "Грати",
+    pause: "Пауза",
+    instrumental: "Мінус",
+    vocals: "Вокал",
+    mute: "Без звуку",
+    unmute: "Звук",
+    downloadInstrumental: "Завантажити мінус",
+    downloadVocals: "Завантажити вокал",
+    noUploads: "Треків ще немає.",
+    loaded: "Вибрано",
+    delete: "Видалити",
+    confirmDelete: (filename) => `Видалити "${filename}"?`,
+    songDeleted: "Трек видалено.",
+    chooseFileFirst: "Спочатку оберіть файл.",
+    uploading: "Завантаження...",
+    jobQueued: "У черзі.",
+    loginProgress: "Входимо...",
+    createAccountProgress: "Реєструємо...",
+    readyToStart: "Оберіть файл.",
+    queued: (position) =>
+      `${position ? `Черга: ${position}. ` : ""}Очікує. Сторінку можна закрити.`,
+    processing: "Обробляємо. Сторінку можна закрити.",
+    ready: (mode) => `Готово · ${mode === "fast" ? "Швидко" : "Якісно"}`,
+    failed: "Не вдалося.",
+    error: (message) => `Помилка: ${message}`,
+  },
+};
+
+const detectLanguage = () => {
+  const savedLanguage = localStorage.getItem("stemdeck-language");
+  if (savedLanguage && translations[savedLanguage]) {
+    return savedLanguage;
+  }
+  return (navigator.language || "").toLowerCase().startsWith("uk") ? "uk" : "en";
+};
+
+let language = detectLanguage();
+let t = translations[language];
+
 let jobs = [];
 let activeJobId = null;
 let pollTimer = null;
@@ -36,6 +141,12 @@ let vocalsGain = null;
 let instrumentalMuted = false;
 let vocalsMuted = false;
 let syncTimer = null;
+let pendingSeekTime = null;
+let pendingSeekRatio = null;
+let isSeeking = false;
+let lastManualSeekAt = 0;
+let audioGraphUnavailable = false;
+let desiredPlaybackTime = 0;
 
 const formatTime = (sec) => {
   const total = Math.max(0, Math.floor(sec || 0));
@@ -67,6 +178,45 @@ const setAuthStatus = (text) => {
   authStatus.textContent = text;
 };
 
+const applyTranslations = () => {
+  document.documentElement.lang = language;
+  languageButtons.forEach((button) => {
+    const active = button.dataset.lang === language;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  document.querySelectorAll("[data-i18n]").forEach((el) => {
+    const key = el.dataset.i18n;
+    const value = t[key];
+    if (typeof value === "string") {
+      el.textContent = value;
+    }
+  });
+};
+
+const refreshLocalizedUi = () => {
+  applyTranslations();
+  refreshVolumes();
+  renderJobs();
+  if (instrumentalAudio) {
+    playBtn.textContent = instrumentalAudio.paused ? t.play : t.pause;
+  }
+  if (!activeJobId && playerSection.classList.contains("hidden")) {
+    playerTitle.textContent = t.player;
+  }
+};
+
+const setLanguage = (nextLanguage) => {
+  if (!translations[nextLanguage]) {
+    return;
+  }
+
+  language = nextLanguage;
+  t = translations[language];
+  localStorage.setItem("stemdeck-language", language);
+  refreshLocalizedUi();
+};
+
 const showApp = (user) => {
   authSection.classList.add("hidden");
   appSection.classList.remove("hidden");
@@ -91,16 +241,15 @@ const resetPlayer = async () => {
   if (syncTimer) {
     clearInterval(syncTimer);
   }
-  if (audioContext) {
-    await audioContext.close();
-  }
-
   instrumentalAudio = null;
   vocalsAudio = null;
-  audioContext = null;
   instrumentalGain = null;
   vocalsGain = null;
-  playBtn.textContent = "Play";
+  audioGraphUnavailable = false;
+  pendingSeekTime = null;
+  pendingSeekRatio = null;
+  desiredPlaybackTime = 0;
+  playBtn.textContent = t.play;
   seek.value = "0";
   timeLabel.textContent = "0:00 / 0:00";
 };
@@ -116,22 +265,48 @@ const stopPlayerForDeletedJob = async (jobId) => {
 };
 
 const ensureAudioGraph = () => {
-  if (audioContext || !instrumentalAudio || !vocalsAudio) {
+  if (!instrumentalAudio || !vocalsAudio) {
     return;
   }
 
-  audioContext = new window.AudioContext();
-  const iSource = audioContext.createMediaElementSource(instrumentalAudio);
-  const vSource = audioContext.createMediaElementSource(vocalsAudio);
-  instrumentalGain = audioContext.createGain();
-  vocalsGain = audioContext.createGain();
+  if (instrumentalGain && vocalsGain) {
+    return;
+  }
 
-  iSource.connect(instrumentalGain).connect(audioContext.destination);
-  vSource.connect(vocalsGain).connect(audioContext.destination);
+  if (audioGraphUnavailable) {
+    return;
+  }
+
+  if (!audioContext) {
+    audioContext = new window.AudioContext();
+  }
+
+  try {
+    const iSource = audioContext.createMediaElementSource(instrumentalAudio);
+    const vSource = audioContext.createMediaElementSource(vocalsAudio);
+    instrumentalGain = audioContext.createGain();
+    vocalsGain = audioContext.createGain();
+
+    iSource.connect(instrumentalGain).connect(audioContext.destination);
+    vSource.connect(vocalsGain).connect(audioContext.destination);
+  } catch {
+    audioGraphUnavailable = true;
+    instrumentalGain = null;
+    vocalsGain = null;
+  }
 };
 
 const refreshVolumes = () => {
+  instrumentalMute.textContent = instrumentalMuted ? t.unmute : t.mute;
+  vocalsMute.textContent = vocalsMuted ? t.unmute : t.mute;
+
   if (!instrumentalGain || !vocalsGain) {
+    if (instrumentalAudio) {
+      instrumentalAudio.volume = instrumentalMuted ? 0 : Number(instrumentalVolume.value) / 100;
+    }
+    if (vocalsAudio) {
+      vocalsAudio.volume = vocalsMuted ? 0 : Number(vocalsVolume.value) / 100;
+    }
     return;
   }
 
@@ -140,8 +315,95 @@ const refreshVolumes = () => {
     : Number(instrumentalVolume.value) / 100;
   vocalsGain.gain.value = vocalsMuted ? 0 : Number(vocalsVolume.value) / 100;
 
-  instrumentalMute.textContent = instrumentalMuted ? "Unmute" : "Mute";
-  vocalsMute.textContent = vocalsMuted ? "Unmute" : "Mute";
+};
+
+const currentDuration = () => {
+  const duration = instrumentalAudio?.duration || vocalsAudio?.duration || 0;
+  return Number.isFinite(duration) ? duration : 0;
+};
+
+const setAudioTime = (audio, time) => {
+  audio.currentTime = time;
+};
+
+const waitForSeek = (audio, targetTime) =>
+  new Promise((resolve) => {
+    if (Math.abs((audio.currentTime || 0) - targetTime) < 0.2) {
+      resolve();
+      return;
+    }
+
+    const done = () => {
+      cleanup();
+      resolve();
+    };
+    const cleanup = () => {
+      clearTimeout(timer);
+      audio.removeEventListener("seeked", done);
+      audio.removeEventListener("timeupdate", done);
+      audio.removeEventListener("canplay", done);
+    };
+    const timer = setTimeout(done, 650);
+    audio.addEventListener("seeked", done, { once: true });
+    audio.addEventListener("timeupdate", done, { once: true });
+    audio.addEventListener("canplay", done, { once: true });
+  });
+
+const applySeekTime = (time) => {
+  if (!instrumentalAudio || !vocalsAudio) {
+    return false;
+  }
+
+  const duration = currentDuration();
+  if (duration <= 0) {
+    pendingSeekTime = Math.max(0, time);
+    return false;
+  }
+
+  const nextTime = Math.max(0, Math.min(duration, time));
+  desiredPlaybackTime = nextTime;
+  setAudioTime(instrumentalAudio, nextTime);
+  setAudioTime(vocalsAudio, nextTime);
+  lastManualSeekAt = Date.now();
+  pendingSeekTime = null;
+  pendingSeekRatio = null;
+  seek.value = String(Math.round((nextTime / duration) * 1000));
+  timeLabel.textContent = `${formatTime(nextTime)} / ${formatTime(duration)}`;
+  return true;
+};
+
+const seekBoth = async (time) => {
+  if (!instrumentalAudio || !vocalsAudio) {
+    return;
+  }
+
+  const duration = currentDuration();
+  if (duration <= 0) {
+    return;
+  }
+
+  const nextTime = Math.max(0, Math.min(duration, time));
+  desiredPlaybackTime = nextTime;
+  setAudioTime(instrumentalAudio, nextTime);
+  setAudioTime(vocalsAudio, nextTime);
+  await Promise.all([
+    waitForSeek(instrumentalAudio, nextTime),
+    waitForSeek(vocalsAudio, nextTime),
+  ]);
+  setAudioTime(instrumentalAudio, nextTime);
+  setAudioTime(vocalsAudio, nextTime);
+};
+
+const applyPendingSeek = () => {
+  const duration = currentDuration();
+  if (pendingSeekRatio !== null && duration > 0) {
+    applySeekTime(pendingSeekRatio * duration);
+    return;
+  }
+
+  if (pendingSeekTime !== null) {
+    applySeekTime(pendingSeekTime);
+  }
 };
 
 const setupTimeSync = () => {
@@ -155,12 +417,20 @@ const setupTimeSync = () => {
     }
 
     const t = instrumentalAudio.currentTime || 0;
-    const duration = instrumentalAudio.duration || 0;
-    if (!seek.matches(":active") && duration > 0) {
+    const duration = currentDuration();
+    const settlingAfterSeek = isSeeking || Date.now() - lastManualSeekAt < 1000;
+    if (!settlingAfterSeek) {
+      desiredPlaybackTime = t;
+    }
+    if (!settlingAfterSeek && duration > 0) {
       seek.value = String(Math.round((t / duration) * 1000));
     }
 
     timeLabel.textContent = `${formatTime(t)} / ${formatTime(duration)}`;
+
+    if (settlingAfterSeek) {
+      return;
+    }
 
     const drift = Math.abs((vocalsAudio.currentTime || 0) - t);
     if (drift > 0.08) {
@@ -183,6 +453,8 @@ const loadPlayer = async (job) => {
   vocalsAudio = new Audio(vocalsUrl);
   instrumentalAudio.preload = "auto";
   vocalsAudio.preload = "auto";
+  instrumentalAudio.addEventListener("loadedmetadata", applyPendingSeek);
+  vocalsAudio.addEventListener("loadedmetadata", applyPendingSeek);
 
   playerTitle.textContent = job.filename;
   downloadInstrumental.href = instrumentalUrl;
@@ -197,20 +469,19 @@ const loadPlayer = async (job) => {
 
 const describeJob = (job) => {
   if (job.status === "queued") {
-    const queue = job.queue_position ? `Number in queue: ${job.queue_position}. ` : "";
-    return `${queue}Your file is waiting. You can close this page and come back later.`;
+    return t.queued(job.queue_position);
   }
 
   if (job.status === "processing") {
-    return "Your file is processing. You can close this page and come back later.";
+    return t.processing;
   }
 
   if (job.status === "done") {
-    return `Ready · ${job.separation_mode === "fast" ? "Fast CPU" : "Quality"} mode`;
+    return t.ready(job.separation_mode);
   }
 
   if (job.status === "failed") {
-    return job.error || "Processing failed.";
+    return job.error || t.failed;
   }
 
   return job.message || job.status;
@@ -218,7 +489,11 @@ const describeJob = (job) => {
 
 const renderJobs = () => {
   if (!jobs.length) {
-    jobsList.innerHTML = '<p class="empty">No uploads yet.</p>';
+    jobsList.innerHTML = "";
+    const empty = document.createElement("p");
+    empty.className = "empty";
+    empty.textContent = t.noUploads;
+    jobsList.appendChild(empty);
     return;
   }
 
@@ -244,14 +519,14 @@ const renderJobs = () => {
     const play = document.createElement("button");
     play.type = "button";
     play.className = "secondary";
-    play.textContent = job.id === activeJobId ? "Loaded" : "Play";
+    play.textContent = job.id === activeJobId ? t.loaded : t.play;
     play.disabled = job.status !== "done";
     play.addEventListener("click", () => loadPlayer(job));
 
     const del = document.createElement("button");
     del.type = "button";
     del.className = "danger";
-    del.textContent = "Delete";
+    del.textContent = t.delete;
     del.addEventListener("click", () => deleteJob(job));
 
     actions.append(play, del);
@@ -261,7 +536,7 @@ const renderJobs = () => {
 };
 
 const deleteJob = async (job) => {
-  const ok = window.confirm(`Delete "${job.filename}" from your account?`);
+  const ok = window.confirm(t.confirmDelete(job.filename));
   if (!ok) {
     return;
   }
@@ -271,9 +546,9 @@ const deleteJob = async (job) => {
     jobs = jobs.filter((item) => item.id !== job.id);
     await stopPlayerForDeletedJob(job.id);
     renderJobs();
-    setStatus("Song deleted.");
+    setStatus(t.songDeleted);
   } catch (error) {
-    setStatus(`Error: ${error.message}`);
+    setStatus(t.error(error.message));
   }
 };
 
@@ -294,7 +569,7 @@ const refreshJobs = async () => {
 
 const submitAuth = async (mode) => {
   const formData = new FormData(authForm);
-  setAuthStatus(mode === "login" ? "Logging in..." : "Creating account...");
+  setAuthStatus(mode === "login" ? t.loginProgress : t.createAccountProgress);
 
   try {
     const payload = await api(`/api/${mode}`, {
@@ -302,10 +577,10 @@ const submitAuth = async (mode) => {
       body: formData,
     });
     showApp(payload.user);
-    setStatus("Choose a file to start a job.");
+    setStatus(t.readyToStart);
     await refreshJobs();
   } catch (error) {
-    setAuthStatus(`Error: ${error.message}`);
+    setAuthStatus(t.error(error.message));
   }
 };
 
@@ -338,7 +613,7 @@ refreshBtn.addEventListener("click", refreshJobs);
 processBtn.addEventListener("click", async () => {
   const file = audioFile.files?.[0];
   if (!file) {
-    setStatus("Choose a file first.");
+    setStatus(t.chooseFileFirst);
     return;
   }
 
@@ -346,7 +621,7 @@ processBtn.addEventListener("click", async () => {
   formData.append("file", file);
   formData.append("fast_mode", fastMode.checked ? "true" : "false");
 
-  setStatus("Uploading...");
+  setStatus(t.uploading);
   processBtn.disabled = true;
 
   try {
@@ -356,11 +631,11 @@ processBtn.addEventListener("click", async () => {
     });
     jobs = [payload.job, ...jobs.filter((job) => job.id !== payload.job.id)];
     renderJobs();
-    setStatus("Job queued.");
+    setStatus(t.jobQueued);
     audioFile.value = "";
     await refreshJobs();
   } catch (error) {
-    setStatus(`Error: ${error.message}`);
+    setStatus(t.error(error.message));
   } finally {
     processBtn.disabled = false;
   }
@@ -372,30 +647,52 @@ playBtn.addEventListener("click", async () => {
   }
 
   ensureAudioGraph();
-  if (audioContext.state === "suspended") {
+  if (audioContext?.state === "suspended") {
     await audioContext.resume();
   }
 
   if (instrumentalAudio.paused) {
-    vocalsAudio.currentTime = instrumentalAudio.currentTime;
+    applyPendingSeek();
+    await seekBoth(desiredPlaybackTime);
     await Promise.all([instrumentalAudio.play(), vocalsAudio.play()]);
-    playBtn.textContent = "Pause";
+    playBtn.textContent = t.pause;
   } else {
     instrumentalAudio.pause();
     vocalsAudio.pause();
-    playBtn.textContent = "Play";
+    playBtn.textContent = t.play;
   }
 });
 
-seek.addEventListener("input", () => {
-  if (!instrumentalAudio || !vocalsAudio || !instrumentalAudio.duration) {
+const handleSeek = () => {
+  if (!instrumentalAudio || !vocalsAudio) {
     return;
   }
 
-  const newTime = (Number(seek.value) / 1000) * instrumentalAudio.duration;
-  instrumentalAudio.currentTime = newTime;
-  vocalsAudio.currentTime = newTime;
+  const duration = currentDuration();
+  if (duration <= 0) {
+    pendingSeekRatio = Number(seek.value) / 1000;
+    pendingSeekTime = null;
+    return;
+  }
+
+  const requestedTime = duration > 0 ? (Number(seek.value) / 1000) * duration : 0;
+  desiredPlaybackTime = requestedTime;
+  applySeekTime(requestedTime);
+};
+
+seek.addEventListener("pointerdown", () => {
+  isSeeking = true;
 });
+seek.addEventListener("pointerup", () => {
+  isSeeking = false;
+  handleSeek();
+});
+seek.addEventListener("touchend", () => {
+  isSeeking = false;
+  handleSeek();
+});
+seek.addEventListener("input", handleSeek);
+seek.addEventListener("change", handleSeek);
 
 instrumentalVolume.addEventListener("input", refreshVolumes);
 vocalsVolume.addEventListener("input", refreshVolumes);
@@ -410,4 +707,9 @@ vocalsMute.addEventListener("click", () => {
   refreshVolumes();
 });
 
+languageButtons.forEach((button) => {
+  button.addEventListener("click", () => setLanguage(button.dataset.lang));
+});
+
+applyTranslations();
 init();

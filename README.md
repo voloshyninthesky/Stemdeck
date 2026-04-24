@@ -10,7 +10,7 @@ Features:
 4. Synchronized instrumental/vocal playback with volume and mute controls.
 5. Delete uploads from your account.
 6. Download links for both stems.
-7. Fast CPU mode with a UVR MDX-Net model, plus slower Demucs quality mode.
+7. Fast mode with a UVR MDX-Net model, plus slower Demucs quality mode.
 
 ## Stack
 

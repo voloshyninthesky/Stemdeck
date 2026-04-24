@@ -69,6 +69,12 @@ body::before {
   animation: rise 520ms ease both;
 }
 
+.topbar-actions {
+  display: grid;
+  gap: 10px;
+  justify-items: end;
+}
+
 h1,
 h2,
 h3,
@@ -160,6 +166,32 @@ input {
   color: var(--ink);
   font: inherit;
   padding: 13px 12px;
+}
+
+.language-switcher {
+  display: flex;
+  gap: 6px;
+  padding: 5px;
+  border: 2px solid var(--ink);
+  background: rgba(255, 250, 240, 0.72);
+}
+
+.flag-button {
+  min-width: 46px;
+  min-height: 38px;
+  padding: 5px 9px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.flag-button:hover,
+.flag-button.active {
+  background: var(--lime);
+  box-shadow: 3px 3px 0 var(--ink);
+  transform: none;
 }
 
 input:focus {

@@ -3,7 +3,7 @@ import threading
 import uuid
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from fastapi import Cookie, Depends, FastAPI, File, Form, Header, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -101,6 +101,59 @@ def serialize_job(job: dict[str, Any]) -> dict[str, Any]:
         payload["vocals_url"] = f"/api/jobs/{job['id']}/files/vocals"
 
     return payload
+
+
+def parse_byte_range(
+    range_header: str | None,
+    total_size: int,
+    filename: str,
+) -> tuple[int, int, int, dict[str, str]]:
+    start = 0
+    end = total_size - 1
+    status_code = 200
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": f'inline; filename="{filename}"',
+    }
+
+    if range_header and range_header.startswith("bytes="):
+        raw_range = range_header.removeprefix("bytes=").split(",", 1)[0]
+        raw_start, _, raw_end = raw_range.partition("-")
+        try:
+            if raw_start:
+                start = int(raw_start)
+                if raw_end:
+                    end = int(raw_end)
+            elif raw_end:
+                suffix_length = int(raw_end)
+                start = max(0, total_size - suffix_length)
+            else:
+                raise ValueError
+        except ValueError as exc:
+            raise HTTPException(status_code=416, detail="Range not satisfiable") from exc
+
+        end = min(end, total_size - 1)
+        if start > end or start >= total_size:
+            raise HTTPException(status_code=416, detail="Range not satisfiable")
+
+        status_code = 206
+        headers["Content-Range"] = f"bytes {start}-{end}/{total_size}"
+
+    length = end - start + 1
+    headers["Content-Length"] = str(length)
+    return start, length, status_code, headers
+
+
+def stream_local_file(path: Path, offset: int, length: int) -> Iterator[bytes]:
+    remaining = length
+    with path.open("rb") as f:
+        f.seek(offset)
+        while remaining > 0:
+            chunk = f.read(min(1024 * 1024, remaining))
+            if not chunk:
+                break
+            remaining -= len(chunk)
+            yield chunk
 
 
 def enqueue_job(job_id: str) -> None:
@@ -207,38 +260,14 @@ def job_file(
         raise HTTPException(status_code=404, detail="Job not found")
 
     key = job.get(f"{stem}_key")
+    filename = "instrumental.wav" if stem == "instrumental" else "vocals.wav"
     if key and storage.is_object_storage_enabled():
-        filename = "instrumental.wav" if stem == "instrumental" else "vocals.wav"
         total_size = storage.object_size(key)
-        start = 0
-        end = total_size - 1
-        status_code = 200
-        headers = {
-            "Accept-Ranges": "bytes",
-            "Content-Disposition": f'attachment; filename="{filename}"',
-        }
-        if range_header and range_header.startswith("bytes="):
-            raw_range = range_header.removeprefix("bytes=").split(",", 1)[0]
-            raw_start, _, raw_end = raw_range.partition("-")
-            try:
-                if raw_start:
-                    start = int(raw_start)
-                    if raw_end:
-                        end = int(raw_end)
-                elif raw_end:
-                    suffix_length = int(raw_end)
-                    start = max(0, total_size - suffix_length)
-                else:
-                    raise ValueError
-            except ValueError as exc:
-                raise HTTPException(status_code=416, detail="Range not satisfiable") from exc
-            end = min(end, total_size - 1)
-            if start > end or start >= total_size:
-                raise HTTPException(status_code=416, detail="Range not satisfiable")
-            status_code = 206
-            headers["Content-Range"] = f"bytes {start}-{end}/{total_size}"
-        length = end - start + 1
-        headers["Content-Length"] = str(length)
+        start, length, status_code, headers = parse_byte_range(
+            range_header,
+            total_size,
+            filename,
+        )
         return StreamingResponse(
             storage.stream_object(key, offset=start, length=length),
             status_code=status_code,
@@ -249,7 +278,18 @@ def job_file(
     path = Path(job.get(f"{stem}_path") or "")
     if not path.exists():
         raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(path, media_type="audio/wav", filename=path.name)
+    total_size = path.stat().st_size
+    start, length, status_code, headers = parse_byte_range(
+        range_header,
+        total_size,
+        filename,
+    )
+    return StreamingResponse(
+        stream_local_file(path, start, length),
+        status_code=status_code,
+        media_type="audio/wav",
+        headers=headers,
+    )
 
 
 @app.delete("/api/jobs/{job_id}")

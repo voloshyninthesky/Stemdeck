@@ -17,91 +17,97 @@
     <header class="topbar">
       <div>
         <p class="eyebrow">Stemdeck</p>
-        <h1>Split a track. Keep every take.</h1>
+        <h1 data-i18n="heroTitle">Extract vocal or instrumental</h1>
       </div>
-      <div id="accountBar" class="account-bar hidden">
-        <span id="usernameLabel"></span>
-        <button id="logoutBtn" type="button">Logout</button>
+      <div class="topbar-actions">
+        <div class="language-switcher" role="group" aria-label="🌐">
+          <button id="langEn" type="button" class="flag-button" data-lang="en" aria-label="English">🇬🇧</button>
+          <button id="langUk" type="button" class="flag-button" data-lang="uk" aria-label="Українська">🇺🇦</button>
+        </div>
+        <div id="accountBar" class="account-bar hidden">
+          <span id="usernameLabel"></span>
+          <button id="logoutBtn" type="button" data-i18n="logout">Logout</button>
+        </div>
       </div>
     </header>
 
     <section id="authSection" class="card">
       <form id="authForm" class="auth-form">
         <div>
-          <label for="username" class="label">Username</label>
+          <label for="username" class="label" data-i18n="username">Username</label>
           <input id="username" name="username" autocomplete="username" required />
         </div>
 
         <div>
-          <label for="password" class="label">Password</label>
+          <label for="password" class="label" data-i18n="password">Password</label>
           <input id="password" name="password" type="password" autocomplete="current-password" required />
         </div>
 
         <div class="button-row">
-          <button id="loginBtn" type="submit">Login</button>
-          <button id="registerBtn" type="button" class="secondary">Create account</button>
+          <button id="loginBtn" type="submit" data-i18n="login">Login</button>
+          <button id="registerBtn" type="button" class="secondary" data-i18n="createAccount">Create account</button>
         </div>
       </form>
-      <p id="authStatus" class="status">Login or create an account to see your uploads.</p>
+      <p id="authStatus" class="status" data-i18n="authPrompt">Login or create an account to see your uploads.</p>
     </section>
 
     <section id="appSection" class="hidden">
       <section class="upload-panel">
         <div>
-          <p class="eyebrow">New split</p>
-          <h2>Drop in an audio or video file</h2>
+          <p class="eyebrow" data-i18n="newSplit">New split</p>
+          <h2 data-i18n="dropFile">Drop in an audio or video file</h2>
         </div>
         <div class="upload-row">
           <input id="audioFile" type="file" accept="audio/*,video/*" />
-          <button id="processBtn" type="button">Process</button>
+          <button id="processBtn" type="button" data-i18n="process">Process</button>
         </div>
         <label class="mode-toggle" for="fastMode">
           <input id="fastMode" type="checkbox" checked />
           <span>
-            <strong>Fast CPU mode</strong>
-            <small>Uses the lightweight UVR vocal model. Turn off for slower Demucs quality mode.</small>
+            <strong data-i18n="fastModeTitle">Fast mode</strong>
+            <small data-i18n="fastModeHelp">Recommended for quick results. Turn off for higher quality.</small>
           </span>
         </label>
-        <p id="status" class="status">Choose a file to start a job.</p>
+        <p id="status" class="status" data-i18n="chooseFile">Choose a file to start a job.</p>
       </section>
 
       <section class="jobs-layout">
         <section class="jobs-panel">
           <div class="section-heading">
             <div>
-              <p class="eyebrow">Library</p>
-              <h2>Past uploads</h2>
+              <p class="eyebrow" data-i18n="library">Library</p>
+              <h2 data-i18n="pastUploads">Past uploads</h2>
             </div>
-            <button id="refreshBtn" type="button" class="secondary">Refresh</button>
+            <button id="refreshBtn" type="button" class="secondary" data-i18n="refresh">Refresh</button>
           </div>
           <div id="jobsList" class="jobs-list"></div>
         </section>
 
         <section id="playerSection" class="player-panel hidden">
-          <p class="eyebrow">Mixer</p>
-          <h2 id="playerTitle">Player</h2>
+          <p class="eyebrow" data-i18n="mixer">Mixer</p>
+          <h2 id="playerTitle" data-i18n="player">Player</h2>
           <div class="controls-row">
-            <button id="playBtn" type="button">Play</button>
+            <button id="playBtn" type="button" data-i18n="play">Play</button>
             <input id="seek" type="range" min="0" max="1000" value="0" />
             <span id="timeLabel">0:00 / 0:00</span>
           </div>
 
           <div class="mix-grid">
             <div>
-              <h3>Instrumental</h3>
+              <h3 data-i18n="instrumental">Instrumental</h3>
               <input id="instrumentalVolume" type="range" min="0" max="100" value="100" />
-              <button id="instrumentalMute" type="button">Mute</button>
+              <button id="instrumentalMute" type="button" data-i18n="mute">Mute</button>
             </div>
             <div>
-              <h3>Vocals</h3>
+              <h3 data-i18n="vocals">Vocals</h3>
               <input id="vocalsVolume" type="range" min="0" max="100" value="100" />
-              <button id="vocalsMute" type="button">Mute</button>
+              <button id="vocalsMute" type="button" data-i18n="mute">Mute</button>
             </div>
           </div>
 
           <div class="download-row">
-            <a id="downloadInstrumental" href="#" download="instrumental.wav">Download instrumental</a>
-            <a id="downloadVocals" href="#" download="vocals.wav">Download vocals</a>
+            <a id="downloadInstrumental" href="#" download="instrumental.wav" data-i18n="downloadInstrumental">Download instrumental</a>
+            <a id="downloadVocals" href="#" download="vocals.wav" data-i18n="downloadVocals">Download vocals</a>
           </div>
         </section>
       </section>
