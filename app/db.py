@@ -1,0 +1,217 @@
+import hashlib
+import secrets
+import sqlite3
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+DB_PATH = BASE_DIR / "app_data.sqlite3"
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _connect() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
+    return dict(row) if row else None
+
+
+def init_db() -> None:
+    with _connect() as conn:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS sessions (
+                token TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                expires_at TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS jobs (
+                id TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                original_filename TEXT NOT NULL,
+                input_path TEXT NOT NULL,
+                job_dir TEXT NOT NULL,
+                instrumental_path TEXT,
+                vocals_path TEXT,
+                duration REAL DEFAULT 0,
+                status TEXT NOT NULL,
+                progress INTEGER NOT NULL DEFAULT 0,
+                message TEXT NOT NULL DEFAULT '',
+                error TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                completed_at TEXT,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            );
+            """
+        )
+
+
+def hash_password(password: str, salt: str | None = None) -> str:
+    salt = salt or secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 120_000)
+    return f"{salt}${digest.hex()}"
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    salt, _ = password_hash.split("$", 1)
+    return secrets.compare_digest(hash_password(password, salt), password_hash)
+
+
+def create_user(username: str, password: str) -> dict[str, Any]:
+    username = username.strip().lower()
+    if len(username) < 3:
+        raise ValueError("Username must be at least 3 characters")
+    if len(password) < 6:
+        raise ValueError("Password must be at least 6 characters")
+
+    try:
+        with _connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO users (username, password_hash, created_at)
+                VALUES (?, ?, ?)
+                """,
+                (username, hash_password(password), _now()),
+            )
+            user_id = cur.lastrowid
+            row = conn.execute(
+                "SELECT id, username, created_at FROM users WHERE id = ?", (user_id,)
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise ValueError("Username is already taken") from exc
+
+    user = _row_to_dict(row)
+    if not user:
+        raise ValueError("Failed to create user")
+    return user
+
+
+def authenticate_user(username: str, password: str) -> dict[str, Any] | None:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM users WHERE username = ?", (username.strip().lower(),)
+        ).fetchone()
+
+    user = _row_to_dict(row)
+    if not user or not verify_password(password, user["password_hash"]):
+        return None
+    return {"id": user["id"], "username": user["username"], "created_at": user["created_at"]}
+
+
+def create_session(user_id: int) -> str:
+    token = secrets.token_urlsafe(32)
+    expires_at = (datetime.now(UTC) + timedelta(days=30)).isoformat()
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO sessions (token, user_id, expires_at, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (token, user_id, expires_at, _now()),
+        )
+    return token
+
+
+def delete_session(token: str) -> None:
+    with _connect() as conn:
+        conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+
+
+def get_user_by_session(token: str | None) -> dict[str, Any] | None:
+    if not token:
+        return None
+
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT users.id, users.username, users.created_at
+            FROM sessions
+            JOIN users ON users.id = sessions.user_id
+            WHERE sessions.token = ? AND sessions.expires_at > ?
+            """,
+            (token, _now()),
+        ).fetchone()
+
+    return _row_to_dict(row)
+
+
+def create_job(
+    job_id: str,
+    user_id: int,
+    original_filename: str,
+    input_path: Path,
+    job_dir: Path,
+) -> dict[str, Any]:
+    now = _now()
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO jobs (
+                id, user_id, original_filename, input_path, job_dir,
+                status, progress, message, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, 'queued', 0, 'Waiting in queue', ?, ?)
+            """,
+            (job_id, user_id, original_filename, str(input_path), str(job_dir), now, now),
+        )
+    job = get_job(job_id, user_id)
+    if not job:
+        raise ValueError("Failed to create job")
+    return job
+
+
+def update_job(job_id: str, **fields: Any) -> None:
+    if not fields:
+        return
+
+    fields["updated_at"] = _now()
+    assignments = ", ".join(f"{key} = ?" for key in fields)
+    values = list(fields.values())
+    values.append(job_id)
+
+    with _connect() as conn:
+        conn.execute(f"UPDATE jobs SET {assignments} WHERE id = ?", values)
+
+
+def get_job(job_id: str, user_id: int | None = None) -> dict[str, Any] | None:
+    query = "SELECT * FROM jobs WHERE id = ?"
+    params: list[Any] = [job_id]
+    if user_id is not None:
+        query += " AND user_id = ?"
+        params.append(user_id)
+
+    with _connect() as conn:
+        row = conn.execute(query, params).fetchone()
+    return _row_to_dict(row)
+
+
+def list_jobs(user_id: int) -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM jobs
+            WHERE user_id = ?
+            ORDER BY created_at DESC
+            """,
+            (user_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]

@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stemdeck</title>
+  <meta name="theme-color" content="#101511" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Stemdeck" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+  <main class="container">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Stemdeck</p>
+        <h1>Split a track. Keep every take.</h1>
+      </div>
+      <div id="accountBar" class="account-bar hidden">
+        <span id="usernameLabel"></span>
+        <button id="logoutBtn" type="button">Logout</button>
+      </div>
+    </header>
+
+    <section id="authSection" class="card">
+      <form id="authForm" class="auth-form">
+        <div>
+          <label for="username" class="label">Username</label>
+          <input id="username" name="username" autocomplete="username" required />
+        </div>
+
+        <div>
+          <label for="password" class="label">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required />
+        </div>
+
+        <div class="button-row">
+          <button id="loginBtn" type="submit">Login</button>
+          <button id="registerBtn" type="button" class="secondary">Create account</button>
+        </div>
+      </form>
+      <p id="authStatus" class="status">Login or create an account to see your uploads.</p>
+    </section>
+
+    <section id="appSection" class="hidden">
+      <section class="upload-panel">
+        <div>
+          <p class="eyebrow">New split</p>
+          <h2>Drop in an audio or video file</h2>
+        </div>
+        <div class="upload-row">
+          <input id="audioFile" type="file" accept="audio/*,video/*" />
+          <button id="processBtn" type="button">Process</button>
+        </div>
+        <p id="status" class="status">Choose a file to start a job.</p>
+      </section>
+
+      <section class="jobs-layout">
+        <section class="jobs-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Library</p>
+              <h2>Past uploads</h2>
+            </div>
+            <button id="refreshBtn" type="button" class="secondary">Refresh</button>
+          </div>
+          <div id="jobsList" class="jobs-list"></div>
+        </section>
+
+        <section id="playerSection" class="player-panel hidden">
+          <p class="eyebrow">Mixer</p>
+          <h2 id="playerTitle">Player</h2>
+          <div class="controls-row">
+            <button id="playBtn" type="button">Play</button>
+            <input id="seek" type="range" min="0" max="1000" value="0" />
+            <span id="timeLabel">0:00 / 0:00</span>
+          </div>
+
+          <div class="mix-grid">
+            <div>
+              <h3>Instrumental</h3>
+              <input id="instrumentalVolume" type="range" min="0" max="100" value="100" />
+              <button id="instrumentalMute" type="button">Mute</button>
+            </div>
+            <div>
+              <h3>Vocals</h3>
+              <input id="vocalsVolume" type="range" min="0" max="100" value="100" />
+              <button id="vocalsMute" type="button">Mute</button>
+            </div>
+          </div>
+
+          <div class="download-row">
+            <a id="downloadInstrumental" href="#" download="instrumental.wav">Download instrumental</a>
+            <a id="downloadVocals" href="#" download="vocals.wav">Download vocals</a>
+          </div>
+        </section>
+      </section>
+    </section>
+  </main>
+
+  <script src="/assets/app.js"></script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    }
+  </script>
+</body>
+</html>

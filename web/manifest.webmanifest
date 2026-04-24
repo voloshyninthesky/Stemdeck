@@ -1,0 +1,17 @@
+{
+  "name": "Stemdeck",
+  "short_name": "Stemdeck",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fbf7ed",
+  "theme_color": "#101511",
+  "description": "Split vocals and instrumental tracks, mix stems, and replay your upload library.",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
