@@ -1,0 +1,95 @@
+services:
+  web:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${APP_HOST:-0.0.0.0}:${APP_PORT:-8000}:8000"
+    environment:
+      APP_DATA_DIR: /data
+      SESSION_DAYS: ${SESSION_DAYS:-30}
+      REUSE_PROCESSED_OUTPUTS: ${REUSE_PROCESSED_OUTPUTS:-true}
+      FAST_SEPARATOR_MODEL: ${FAST_SEPARATOR_MODEL:-UVR-MDX-NET-Voc_FT.onnx}
+      FAST_SEPARATOR_MODEL_DIR: /models/audio-separator
+      CELERY_BROKER_URL: pyamqp://guest:guest@rabbitmq//
+      CELERY_RESULT_BACKEND: rpc://
+      STORAGE_BACKEND: minio
+      STORAGE_ENDPOINT: minio:9000
+      STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER:-stemdeck}
+      STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-stemdeck-secret}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-stemdeck}
+      STORAGE_SECURE: "false"
+      XDG_CACHE_HOME: /models
+      TORCH_HOME: /models/torch
+    volumes:
+      - app_data:/data
+      - model_cache:/models
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: python -m celery -A app.tasks.celery_app worker --loglevel=info --pool=solo
+    environment:
+      APP_DATA_DIR: /data
+      SESSION_DAYS: ${SESSION_DAYS:-30}
+      REUSE_PROCESSED_OUTPUTS: ${REUSE_PROCESSED_OUTPUTS:-true}
+      FAST_SEPARATOR_MODEL: ${FAST_SEPARATOR_MODEL:-UVR-MDX-NET-Voc_FT.onnx}
+      FAST_SEPARATOR_MODEL_DIR: /models/audio-separator
+      CELERY_BROKER_URL: pyamqp://guest:guest@rabbitmq//
+      CELERY_RESULT_BACKEND: rpc://
+      STORAGE_BACKEND: minio
+      STORAGE_ENDPOINT: minio:9000
+      STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER:-stemdeck}
+      STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-stemdeck-secret}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-stemdeck}
+      STORAGE_SECURE: "false"
+      XDG_CACHE_HOME: /models
+      TORCH_HOME: /models/torch
+    volumes:
+      - app_data:/data
+      - model_cache:/models
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-stemdeck}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-stemdeck-secret}
+    ports:
+      - "${MINIO_CONSOLE_HOST:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    restart: unless-stopped
+    ports:
+      - "${RABBITMQ_MANAGEMENT_HOST:-127.0.0.1}:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  app_data:
+  model_cache:
+  minio_data:
+  rabbitmq_data:

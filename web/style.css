@@ -215,6 +215,12 @@ button:disabled {
   box-shadow: 4px 4px 0 var(--teal);
 }
 
+.danger {
+  background: var(--coral);
+  color: var(--ink);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
 .status,
 .empty {
   margin: 10px 0 0;
@@ -261,6 +267,37 @@ button:disabled {
   flex: 1 1 120px;
 }
 
+.mode-toggle {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: start;
+  margin-top: 14px;
+  padding: 12px;
+  border: 2px solid var(--ink);
+  background: rgba(255, 250, 240, 0.64);
+  cursor: pointer;
+}
+
+.mode-toggle input {
+  width: 22px;
+  height: 22px;
+  margin-top: 2px;
+  accent-color: var(--coral);
+}
+
+.mode-toggle strong,
+.mode-toggle small {
+  display: block;
+}
+
+.mode-toggle small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-weight: 700;
+  line-height: 1.35;
+}
+
 .jobs-layout {
   display: grid;
   gap: 16px;
@@ -288,7 +325,7 @@ button:disabled {
   text-align: left;
 }
 
-.job-item:hover:not(:disabled),
+.job-item:hover,
 .job-item.active {
   background: var(--lime);
   box-shadow: 4px 4px 0 var(--ink);
@@ -315,24 +352,18 @@ button:disabled {
   font-size: 13px;
 }
 
-.progress {
-  height: 13px;
-  overflow: hidden;
-  border: 2px solid var(--ink);
-  background: #e1d9c8;
+.job-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
 }
 
-.progress span {
-  display: block;
-  height: 100%;
-  width: 0;
-  background: linear-gradient(90deg, var(--teal), var(--lime));
-  transition: width 240ms ease;
+.job-actions button {
+  min-height: 40px;
+  padding: 8px 10px;
 }
 
 .player-panel {
-  position: sticky;
-  bottom: 12px;
   background:
     linear-gradient(160deg, rgba(17, 167, 163, 0.22), transparent 58%),
     var(--panel);
@@ -403,6 +434,11 @@ button:disabled {
   .jobs-layout {
     grid-template-columns: minmax(300px, 430px) minmax(0, 1fr);
     align-items: start;
+  }
+
+  .player-panel {
+    position: sticky;
+    top: 18px;
   }
 
   .controls-row {

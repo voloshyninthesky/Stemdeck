@@ -1,0 +1,15 @@
+.git
+.ruff_cache
+__pycache__
+*.pyc
+.DS_Store
+.env
+app_data.sqlite3
+jobs
+output
+*.wav
+*.mp3
+*.mp4
+temp_audio.wav
+instrumental.wav
+bot.log

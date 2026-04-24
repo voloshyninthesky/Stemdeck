@@ -8,6 +8,7 @@ const usernameLabel = document.getElementById("usernameLabel");
 const logoutBtn = document.getElementById("logoutBtn");
 const appSection = document.getElementById("appSection");
 const audioFile = document.getElementById("audioFile");
+const fastMode = document.getElementById("fastMode");
 const processBtn = document.getElementById("processBtn");
 const refreshBtn = document.getElementById("refreshBtn");
 const statusEl = document.getElementById("status");
@@ -104,6 +105,16 @@ const resetPlayer = async () => {
   timeLabel.textContent = "0:00 / 0:00";
 };
 
+const stopPlayerForDeletedJob = async (jobId) => {
+  if (activeJobId !== jobId) {
+    return;
+  }
+
+  await resetPlayer();
+  activeJobId = null;
+  playerSection.classList.add("hidden");
+};
+
 const ensureAudioGraph = () => {
   if (audioContext || !instrumentalAudio || !vocalsAudio) {
     return;
@@ -184,6 +195,27 @@ const loadPlayer = async (job) => {
   setupTimeSync();
 };
 
+const describeJob = (job) => {
+  if (job.status === "queued") {
+    const queue = job.queue_position ? `Number in queue: ${job.queue_position}. ` : "";
+    return `${queue}Your file is waiting. You can close this page and come back later.`;
+  }
+
+  if (job.status === "processing") {
+    return "Your file is processing. You can close this page and come back later.";
+  }
+
+  if (job.status === "done") {
+    return `Ready · ${job.separation_mode === "fast" ? "Fast CPU" : "Quality"} mode`;
+  }
+
+  if (job.status === "failed") {
+    return job.error || "Processing failed.";
+  }
+
+  return job.message || job.status;
+};
+
 const renderJobs = () => {
   if (!jobs.length) {
     jobsList.innerHTML = '<p class="empty">No uploads yet.</p>';
@@ -192,10 +224,8 @@ const renderJobs = () => {
 
   jobsList.innerHTML = "";
   for (const job of jobs) {
-    const item = document.createElement("button");
-    item.type = "button";
+    const item = document.createElement("article");
     item.className = `job-item ${job.id === activeJobId ? "active" : ""}`;
-    item.disabled = job.status !== "done";
 
     const meta = document.createElement("div");
     meta.className = "job-meta";
@@ -204,22 +234,46 @@ const renderJobs = () => {
     title.textContent = job.filename;
 
     const state = document.createElement("span");
-    const percent = Math.max(0, Math.min(100, job.progress || 0));
-    state.textContent = `${job.error || job.message || job.status} · ${percent}%`;
+    state.textContent = describeJob(job);
 
     meta.append(title, state);
 
-    const progress = document.createElement("div");
-    progress.className = "progress";
-    const bar = document.createElement("span");
-    bar.style.width = `${percent}%`;
-    progress.appendChild(bar);
+    const actions = document.createElement("div");
+    actions.className = "job-actions";
 
-    item.append(meta, progress);
-    if (job.status === "done") {
-      item.addEventListener("click", () => loadPlayer(job));
-    }
+    const play = document.createElement("button");
+    play.type = "button";
+    play.className = "secondary";
+    play.textContent = job.id === activeJobId ? "Loaded" : "Play";
+    play.disabled = job.status !== "done";
+    play.addEventListener("click", () => loadPlayer(job));
+
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "danger";
+    del.textContent = "Delete";
+    del.addEventListener("click", () => deleteJob(job));
+
+    actions.append(play, del);
+    item.append(meta, actions);
     jobsList.appendChild(item);
+  }
+};
+
+const deleteJob = async (job) => {
+  const ok = window.confirm(`Delete "${job.filename}" from your account?`);
+  if (!ok) {
+    return;
+  }
+
+  try {
+    await api(`/api/jobs/${job.id}`, { method: "DELETE" });
+    jobs = jobs.filter((item) => item.id !== job.id);
+    await stopPlayerForDeletedJob(job.id);
+    renderJobs();
+    setStatus("Song deleted.");
+  } catch (error) {
+    setStatus(`Error: ${error.message}`);
   }
 };
 
@@ -290,6 +344,7 @@ processBtn.addEventListener("click", async () => {
 
   const formData = new FormData();
   formData.append("file", file);
+  formData.append("fast_mode", fastMode.checked ? "true" : "false");
 
   setStatus("Uploading...");
   processBtn.disabled = true;

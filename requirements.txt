@@ -4,5 +4,8 @@ python-multipart
 celery
 torch
 torchaudio
+torchcodec
 demucs
 soundfile
+audio-separator[cpu]
+minio

@@ -1,4 +1,4 @@
-const CACHE_NAME = "stemdeck-v4";
+const CACHE_NAME = "stemdeck-v7";
 const SHELL_ASSETS = [
   "/",
   "/assets/style.css",
@@ -29,7 +29,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (req.url.includes("/api/") || req.url.includes("/media/")) {
+  if (req.url.includes("/api/")) {
     return;
   }
 

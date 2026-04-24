@@ -5,6 +5,7 @@ from pathlib import Path
 from celery import Celery
 
 from app import db
+from app import storage
 from app.processing import separate_audio
 
 BROKER_URL = os.getenv("CELERY_BROKER_URL", "pyamqp://guest:guest@localhost//")
@@ -35,11 +36,21 @@ def process_job(job_id: str) -> None:
         )
 
     try:
-        report(5, "Starting")
+        mode = job.get("separation_mode") or "fast"
+        report(5, "Your file is processing. You can close this page.")
         result = separate_audio(
             input_path=Path(job["input_path"]),
             job_dir=Path(job["job_dir"]),
             report_progress=report,
+            separation_mode=mode,
+        )
+        instrumental_key = storage.put_file(
+            Path(result["instrumental_path"]),
+            f"{job_id}/exports/instrumental.wav",
+        )
+        vocals_key = storage.put_file(
+            Path(result["vocals_path"]),
+            f"{job_id}/exports/vocals.wav",
         )
         db.update_job(
             job_id,
@@ -48,7 +59,9 @@ def process_job(job_id: str) -> None:
             message="Ready",
             duration=result["duration"],
             instrumental_path=result["instrumental_path"],
+            instrumental_key=instrumental_key,
             vocals_path=result["vocals_path"],
+            vocals_key=vocals_key,
             completed_at=datetime.now(UTC).isoformat(),
         )
     except Exception as exc:

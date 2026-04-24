@@ -1,4 +1,5 @@
 import hashlib
+import os
 import secrets
 import sqlite3
 from datetime import UTC, datetime, timedelta
@@ -6,7 +7,9 @@ from pathlib import Path
 from typing import Any
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DB_PATH = BASE_DIR / "app_data.sqlite3"
+DATA_DIR = Path(os.getenv("APP_DATA_DIR", BASE_DIR))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+DB_PATH = DATA_DIR / "app_data.sqlite3"
 
 
 def _now() -> str:
@@ -47,9 +50,13 @@ def init_db() -> None:
                 user_id INTEGER NOT NULL,
                 original_filename TEXT NOT NULL,
                 input_path TEXT NOT NULL,
+                input_key TEXT,
                 job_dir TEXT NOT NULL,
                 instrumental_path TEXT,
+                instrumental_key TEXT,
                 vocals_path TEXT,
+                vocals_key TEXT,
+                separation_mode TEXT NOT NULL DEFAULT 'fast',
                 duration REAL DEFAULT 0,
                 status TEXT NOT NULL,
                 progress INTEGER NOT NULL DEFAULT 0,
@@ -62,7 +69,21 @@ def init_db() -> None:
             );
             """
         )
-
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(jobs)").fetchall()
+        }
+        migrations = {
+            "input_key": "ALTER TABLE jobs ADD COLUMN input_key TEXT",
+            "instrumental_key": "ALTER TABLE jobs ADD COLUMN instrumental_key TEXT",
+            "vocals_key": "ALTER TABLE jobs ADD COLUMN vocals_key TEXT",
+            "separation_mode": (
+                "ALTER TABLE jobs ADD COLUMN separation_mode TEXT NOT NULL DEFAULT 'fast'"
+            ),
+        }
+        for column, statement in migrations.items():
+            if column not in columns:
+                conn.execute(statement)
 
 def hash_password(password: str, salt: str | None = None) -> str:
     salt = salt or secrets.token_hex(16)
@@ -118,7 +139,8 @@ def authenticate_user(username: str, password: str) -> dict[str, Any] | None:
 
 def create_session(user_id: int) -> str:
     token = secrets.token_urlsafe(32)
-    expires_at = (datetime.now(UTC) + timedelta(days=30)).isoformat()
+    session_days = int(os.getenv("SESSION_DAYS", "30"))
+    expires_at = (datetime.now(UTC) + timedelta(days=session_days)).isoformat()
     with _connect() as conn:
         conn.execute(
             """
@@ -159,18 +181,30 @@ def create_job(
     original_filename: str,
     input_path: Path,
     job_dir: Path,
+    input_key: str = "",
+    separation_mode: str = "fast",
 ) -> dict[str, Any]:
     now = _now()
     with _connect() as conn:
         conn.execute(
             """
             INSERT INTO jobs (
-                id, user_id, original_filename, input_path, job_dir,
+                id, user_id, original_filename, input_path, input_key, job_dir, separation_mode,
                 status, progress, message, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, 'queued', 0, 'Waiting in queue', ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', 0, 'Waiting in queue', ?, ?)
             """,
-            (job_id, user_id, original_filename, str(input_path), str(job_dir), now, now),
+            (
+                job_id,
+                user_id,
+                original_filename,
+                str(input_path),
+                input_key,
+                str(job_dir),
+                separation_mode,
+                now,
+                now,
+            ),
         )
     job = get_job(job_id, user_id)
     if not job:
@@ -215,3 +249,32 @@ def list_jobs(user_id: int) -> list[dict[str, Any]]:
             (user_id,),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def queue_position(job_id: str) -> int | None:
+    job = get_job(job_id)
+    if not job or job["status"] != "queued":
+        return None
+
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS position
+            FROM jobs
+            WHERE status = 'queued'
+              AND created_at <= ?
+            """,
+            (job["created_at"],),
+        ).fetchone()
+    return int(row["position"]) if row else None
+
+
+def delete_job(job_id: str, user_id: int) -> dict[str, Any] | None:
+    job = get_job(job_id, user_id)
+    if not job:
+        return None
+
+    with _connect() as conn:
+        conn.execute("DELETE FROM jobs WHERE id = ? AND user_id = ?", (job_id, user_id))
+
+    return job

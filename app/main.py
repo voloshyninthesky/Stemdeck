@@ -1,24 +1,34 @@
+import os
 import threading
 import uuid
+import shutil
 from pathlib import Path
 from typing import Any
 
-from fastapi import Cookie, Depends, FastAPI, File, Form, HTTPException, Response, UploadFile
+from fastapi import Cookie, Depends, FastAPI, File, Form, Header, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import db
+from app import storage
 from app.tasks import process_job
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-JOBS_DIR = BASE_DIR / "jobs"
+DATA_DIR = Path(os.getenv("APP_DATA_DIR", BASE_DIR))
+JOBS_DIR = DATA_DIR / "jobs"
 WEB_DIR = BASE_DIR / "web"
 SESSION_COOKIE = "vocals_session"
+SESSION_DAYS = int(os.getenv("SESSION_DAYS", "30"))
 
 JOBS_DIR.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="Vocal Remover App API")
+app = FastAPI(
+    title="Vocal Remover App API",
+    openapi_url=None,
+    docs_url=None,
+    redoc_url=None,
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -27,13 +37,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.mount("/media", StaticFiles(directory=JOBS_DIR), name="media")
 app.mount("/assets", StaticFiles(directory=WEB_DIR), name="assets")
 
 
 @app.on_event("startup")
 def startup() -> None:
     db.init_db()
+    storage.ensure_bucket()
 
 
 @app.get("/")
@@ -66,6 +76,7 @@ def current_user(
 
 
 def serialize_job(job: dict[str, Any]) -> dict[str, Any]:
+    queue_position = db.queue_position(job["id"])
     payload = {
         "id": job["id"],
         "filename": job["original_filename"],
@@ -74,6 +85,8 @@ def serialize_job(job: dict[str, Any]) -> dict[str, Any]:
         "message": job["message"],
         "error": job["error"],
         "duration": job["duration"],
+        "separation_mode": job.get("separation_mode", "fast"),
+        "queue_position": queue_position,
         "created_at": job["created_at"],
         "updated_at": job["updated_at"],
         "completed_at": job["completed_at"],
@@ -81,9 +94,11 @@ def serialize_job(job: dict[str, Any]) -> dict[str, Any]:
         "vocals_url": None,
     }
 
-    if job["instrumental_path"] and job["vocals_path"]:
-        payload["instrumental_url"] = f"/media/{job['id']}/exports/instrumental.wav"
-        payload["vocals_url"] = f"/media/{job['id']}/exports/vocals.wav"
+    if (job["instrumental_path"] and job["vocals_path"]) or (
+        job.get("instrumental_key") and job.get("vocals_key")
+    ):
+        payload["instrumental_url"] = f"/api/jobs/{job['id']}/files/instrumental"
+        payload["vocals_url"] = f"/api/jobs/{job['id']}/files/vocals"
 
     return payload
 
@@ -119,7 +134,7 @@ def register(
         token,
         httponly=True,
         samesite="lax",
-        max_age=60 * 60 * 24 * 30,
+        max_age=60 * 60 * 24 * SESSION_DAYS,
     )
     return {"user": user}
 
@@ -140,7 +155,7 @@ def login(
         token,
         httponly=True,
         samesite="lax",
-        max_age=60 * 60 * 24 * 30,
+        max_age=60 * 60 * 24 * SESSION_DAYS,
     )
     return {"user": user}
 
@@ -177,9 +192,87 @@ def job_detail(
     return {"job": serialize_job(job)}
 
 
+@app.get("/api/jobs/{job_id}/files/{stem}")
+def job_file(
+    job_id: str,
+    stem: str,
+    range_header: str | None = Header(default=None, alias="Range"),
+    user: dict[str, Any] = Depends(current_user),
+) -> Response:
+    if stem not in {"instrumental", "vocals"}:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    job = db.get_job(job_id, user["id"])
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    key = job.get(f"{stem}_key")
+    if key and storage.is_object_storage_enabled():
+        filename = "instrumental.wav" if stem == "instrumental" else "vocals.wav"
+        total_size = storage.object_size(key)
+        start = 0
+        end = total_size - 1
+        status_code = 200
+        headers = {
+            "Accept-Ranges": "bytes",
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        }
+        if range_header and range_header.startswith("bytes="):
+            raw_range = range_header.removeprefix("bytes=").split(",", 1)[0]
+            raw_start, _, raw_end = raw_range.partition("-")
+            try:
+                if raw_start:
+                    start = int(raw_start)
+                    if raw_end:
+                        end = int(raw_end)
+                elif raw_end:
+                    suffix_length = int(raw_end)
+                    start = max(0, total_size - suffix_length)
+                else:
+                    raise ValueError
+            except ValueError as exc:
+                raise HTTPException(status_code=416, detail="Range not satisfiable") from exc
+            end = min(end, total_size - 1)
+            if start > end or start >= total_size:
+                raise HTTPException(status_code=416, detail="Range not satisfiable")
+            status_code = 206
+            headers["Content-Range"] = f"bytes {start}-{end}/{total_size}"
+        length = end - start + 1
+        headers["Content-Length"] = str(length)
+        return StreamingResponse(
+            storage.stream_object(key, offset=start, length=length),
+            status_code=status_code,
+            media_type="audio/wav",
+            headers=headers,
+        )
+
+    path = Path(job.get(f"{stem}_path") or "")
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(path, media_type="audio/wav", filename=path.name)
+
+
+@app.delete("/api/jobs/{job_id}")
+def delete_job(
+    job_id: str,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, str]:
+    job = db.delete_job(job_id, user["id"])
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job_dir = Path(job["job_dir"])
+    if job_dir.exists() and job_dir.is_relative_to(JOBS_DIR):
+        shutil.rmtree(job_dir, ignore_errors=True)
+    storage.remove_prefix(f"{job_id}/")
+
+    return {"status": "deleted"}
+
+
 @app.post("/api/jobs")
 async def create_job(
     file: UploadFile = File(...),
+    fast_mode: bool = Form(True),
     user: dict[str, Any] = Depends(current_user),
 ) -> dict[str, Any]:
     if not file.filename:
@@ -199,12 +292,16 @@ async def create_job(
                 break
             f.write(chunk)
 
+    input_key = storage.put_file(raw_input, f"{job_id}/input/{original_filename}")
+    separation_mode = "fast" if fast_mode else "quality"
     job = db.create_job(
         job_id=job_id,
         user_id=user["id"],
         original_filename=original_filename,
         input_path=raw_input,
         job_dir=job_dir,
+        input_key=input_key,
+        separation_mode=separation_mode,
     )
     enqueue_job(job_id)
 

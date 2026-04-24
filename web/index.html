@@ -55,6 +55,13 @@
           <input id="audioFile" type="file" accept="audio/*,video/*" />
           <button id="processBtn" type="button">Process</button>
         </div>
+        <label class="mode-toggle" for="fastMode">
+          <input id="fastMode" type="checkbox" checked />
+          <span>
+            <strong>Fast CPU mode</strong>
+            <small>Uses the lightweight UVR vocal model. Turn off for slower Demucs quality mode.</small>
+          </span>
+        </label>
         <p id="status" class="status">Choose a file to start a job.</p>
       </section>
 
