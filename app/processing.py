@@ -1,5 +1,7 @@
 import shutil
 import subprocess
+import tarfile
+import urllib.request
 from pathlib import Path
 from typing import Callable
 
@@ -126,6 +128,165 @@ def run_demucs_separator(
 
 
 def run_fast_separator(
+    audio_wav: Path,
+    job_dir: Path,
+    instrumental_out: Path,
+    vocals_out: Path,
+) -> None:
+    if config.FAST_SEPARATOR_BACKEND == "spleeter":
+        run_spleeter_separator(audio_wav, instrumental_out, vocals_out)
+        return
+
+    if config.FAST_SEPARATOR_BACKEND == "uvr":
+        run_uvr_separator(audio_wav, job_dir, instrumental_out, vocals_out)
+        return
+
+    run_sherpa_uvr_separator(audio_wav, instrumental_out, vocals_out)
+
+
+def run_sherpa_uvr_separator(
+    audio_wav: Path,
+    instrumental_out: Path,
+    vocals_out: Path,
+) -> None:
+    import numpy as np
+    import sherpa_onnx
+
+    model_path = ensure_sherpa_uvr_model()
+    separator_config = sherpa_onnx.OfflineSourceSeparationConfig(
+        model=sherpa_onnx.OfflineSourceSeparationModelConfig(
+            uvr=sherpa_onnx.OfflineSourceSeparationUvrModelConfig(
+                model=str(model_path),
+            ),
+            num_threads=max(1, config.FAST_SHERPA_UVR_NUM_THREADS),
+            debug=False,
+            provider="cpu",
+        )
+    )
+    if not separator_config.validate():
+        raise RuntimeError("Fast UVR separator model configuration is invalid")
+
+    separator = sherpa_onnx.OfflineSourceSeparation(separator_config)
+    samples, sample_rate = sf.read(str(audio_wav), dtype="float32", always_2d=True)
+    samples = np.ascontiguousarray(samples.T)
+    output = separator.process(sample_rate=sample_rate, samples=samples)
+    if len(output.stems) != 2:
+        raise RuntimeError("Fast UVR separator did not produce both stems")
+
+    if config.FAST_SHERPA_UVR_TARGET_STEM == "instrumental":
+        instrumental_stem = output.stems[0]
+        vocals_stem = output.stems[1]
+    else:
+        vocals_stem = output.stems[0]
+        instrumental_stem = output.stems[1]
+
+    sf.write(
+        str(vocals_out),
+        vocals_stem.data.T,
+        output.sample_rate,
+        subtype="PCM_16",
+    )
+    sf.write(
+        str(instrumental_out),
+        instrumental_stem.data.T,
+        output.sample_rate,
+        subtype="PCM_16",
+    )
+    if not outputs_are_ready(instrumental_out, vocals_out):
+        raise RuntimeError("Fast UVR separator produced empty stems")
+
+
+def ensure_sherpa_uvr_model() -> Path:
+    model_dir = config.FAST_SHERPA_UVR_MODEL_DIR
+    model_dir.mkdir(parents=True, exist_ok=True)
+    model_path = model_dir / config.FAST_SHERPA_UVR_MODEL
+    if model_path.exists() and model_path.stat().st_size > 0:
+        return model_path
+
+    url = f"{config.FAST_SHERPA_UVR_MODEL_URL_BASE}/{config.FAST_SHERPA_UVR_MODEL}"
+    urllib.request.urlretrieve(url, model_path)
+    if not model_path.exists() or model_path.stat().st_size == 0:
+        raise RuntimeError("Fast UVR separator model download is incomplete")
+    return model_path
+
+
+def run_spleeter_separator(
+    audio_wav: Path,
+    instrumental_out: Path,
+    vocals_out: Path,
+) -> None:
+    import numpy as np
+    import sherpa_onnx
+
+    model_dir = ensure_spleeter_model()
+    vocals_model = model_dir / "vocals.fp16.onnx"
+    accompaniment_model = model_dir / "accompaniment.fp16.onnx"
+    separator_config = sherpa_onnx.OfflineSourceSeparationConfig(
+        model=sherpa_onnx.OfflineSourceSeparationModelConfig(
+            spleeter=sherpa_onnx.OfflineSourceSeparationSpleeterModelConfig(
+                vocals=str(vocals_model),
+                accompaniment=str(accompaniment_model),
+            ),
+            num_threads=max(1, config.FAST_SPLEETER_NUM_THREADS),
+            debug=False,
+            provider="cpu",
+        )
+    )
+    if not separator_config.validate():
+        raise RuntimeError("Fast separator model configuration is invalid")
+
+    separator = sherpa_onnx.OfflineSourceSeparation(separator_config)
+    samples, sample_rate = sf.read(str(audio_wav), dtype="float32", always_2d=True)
+    samples = np.ascontiguousarray(samples.T)
+    output = separator.process(sample_rate=sample_rate, samples=samples)
+    if len(output.stems) != 2:
+        raise RuntimeError("Fast separator did not produce both stems")
+
+    sf.write(
+        str(vocals_out),
+        output.stems[0].data.T,
+        output.sample_rate,
+        subtype="PCM_16",
+    )
+    sf.write(
+        str(instrumental_out),
+        output.stems[1].data.T,
+        output.sample_rate,
+        subtype="PCM_16",
+    )
+    if not outputs_are_ready(instrumental_out, vocals_out):
+        raise RuntimeError("Fast separator produced empty stems")
+
+
+def ensure_spleeter_model() -> Path:
+    root = config.FAST_SPLEETER_MODEL_DIR
+    model_dir = root / "sherpa-onnx-spleeter-2stems-fp16"
+    required = [model_dir / "vocals.fp16.onnx", model_dir / "accompaniment.fp16.onnx"]
+    if all(path.exists() and path.stat().st_size > 0 for path in required):
+        return model_dir
+
+    root.mkdir(parents=True, exist_ok=True)
+    archive = root / "sherpa-onnx-spleeter-2stems-fp16.tar.bz2"
+    urllib.request.urlretrieve(config.FAST_SPLEETER_MODEL_URL, archive)
+    with tarfile.open(archive, "r:bz2") as tar:
+        safe_extract(tar, root)
+    archive.unlink(missing_ok=True)
+
+    if not all(path.exists() and path.stat().st_size > 0 for path in required):
+        raise RuntimeError("Fast separator model download is incomplete")
+    return model_dir
+
+
+def safe_extract(tar: tarfile.TarFile, destination: Path) -> None:
+    destination = destination.resolve()
+    for member in tar.getmembers():
+        target = (destination / member.name).resolve()
+        if target != destination and destination not in target.parents:
+            raise RuntimeError(f"Unsafe model archive path: {member.name}")
+    tar.extractall(destination)
+
+
+def run_uvr_separator(
     audio_wav: Path,
     job_dir: Path,
     instrumental_out: Path,

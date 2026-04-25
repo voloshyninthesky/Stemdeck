@@ -20,3 +20,5 @@ jobs/
 *.mp3
 output/
 temp_audio.wav
+
+node_modules/

@@ -10,7 +10,39 @@
   <meta name="apple-mobile-web-app-title" content="Stemdeck" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/assets/style.css" />
+  <link rel="stylesheet" href="/assets/style.css?v=22" />
+  <script>
+    (() => {
+      const shellVersion = "stemdeck-v22";
+      const url = new URL(window.location.href);
+      const hadCredentials = url.searchParams.has("username") || url.searchParams.has("password");
+
+      url.searchParams.delete("username");
+      url.searchParams.delete("password");
+      if (hadCredentials) {
+        window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
+      }
+
+      if (localStorage.getItem("stemdeck-shell-version") === shellVersion) {
+        return;
+      }
+
+      localStorage.setItem("stemdeck-shell-version", shellVersion);
+      const resetShell = async () => {
+        if ("caches" in window) {
+          const names = await caches.keys();
+          await Promise.all(names.filter((name) => name.startsWith("stemdeck-")).map((name) => caches.delete(name)));
+        }
+        if ("serviceWorker" in navigator) {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(registrations.map((registration) => registration.unregister()));
+        }
+      };
+
+      resetShell()
+        .catch(() => {});
+    })();
+  </script>
 </head>
 <body>
   <main class="container">
@@ -26,13 +58,14 @@
         </div>
         <div id="accountBar" class="account-bar hidden">
           <span id="usernameLabel"></span>
+          <button id="authToggleBtn" type="button" class="secondary" data-i18n="login">Login</button>
           <button id="logoutBtn" type="button" data-i18n="logout">Logout</button>
         </div>
       </div>
     </header>
 
-    <section id="authSection" class="card">
-      <form id="authForm" class="auth-form">
+    <section id="authSection" class="card hidden">
+      <form id="authForm" class="auth-form" method="post" action="/api/login" autocomplete="on">
         <div>
           <label for="username" class="label" data-i18n="username">Username</label>
           <input id="username" name="username" autocomplete="username" required />
@@ -48,7 +81,7 @@
           <button id="registerBtn" type="button" class="secondary" data-i18n="createAccount">Create account</button>
         </div>
       </form>
-      <p id="authStatus" class="status" data-i18n="authPrompt">Login or create an account to see your uploads.</p>
+      <p id="authStatus" class="status" data-i18n="authPrompt">Optional: sign in to keep tracks longer.</p>
     </section>
 
     <section id="appSection" class="hidden">
@@ -114,8 +147,102 @@
     </section>
   </main>
 
-  <script src="/assets/i18n.js"></script>
-  <script src="/assets/app.js"></script>
+  <script>
+    (() => {
+      const authForm = document.getElementById("authForm");
+      const authStatus = document.getElementById("authStatus");
+      const authSection = document.getElementById("authSection");
+      const appSection = document.getElementById("appSection");
+      const accountBar = document.getElementById("accountBar");
+      const usernameLabel = document.getElementById("usernameLabel");
+      const authToggleBtn = document.getElementById("authToggleBtn");
+      const loginBtn = document.getElementById("loginBtn");
+      const registerBtn = document.getElementById("registerBtn");
+      const logoutBtn = document.getElementById("logoutBtn");
+
+      const toggleAuth = (open) => {
+        authSection.classList.toggle("hidden", !open);
+        if (open) {
+          authStatus.textContent = "Optional: sign in to keep tracks longer.";
+          document.getElementById("username")?.focus();
+        }
+      };
+
+      const showUser = (user) => {
+        if (user.is_guest) {
+          toggleAuth(false);
+          usernameLabel.classList.add("hidden");
+          authToggleBtn.classList.remove("hidden");
+          logoutBtn.classList.add("hidden");
+        } else {
+          toggleAuth(false);
+          usernameLabel.classList.remove("hidden");
+          authToggleBtn.classList.add("hidden");
+          logoutBtn.classList.remove("hidden");
+        }
+        appSection.classList.remove("hidden");
+        accountBar.classList.remove("hidden");
+        usernameLabel.textContent = user.username;
+      };
+
+      const showAuth = () => {
+        authSection.classList.remove("hidden");
+        appSection.classList.add("hidden");
+        accountBar.classList.add("hidden");
+        usernameLabel.textContent = "";
+      };
+
+      const postAuth = async (mode, event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        authStatus.textContent = mode === "login" ? "Logging in..." : "Creating account...";
+
+        try {
+          const response = await fetch(`/api/${mode}`, {
+            method: "POST",
+            credentials: "same-origin",
+            body: new FormData(authForm),
+          });
+          const payload = await response.json();
+          if (!response.ok) {
+            throw new Error(payload.detail || "Request failed");
+          }
+
+          showUser(payload.user);
+          window.dispatchEvent(new CustomEvent("stemdeck:auth", { detail: payload }));
+        } catch (error) {
+          authStatus.textContent = `Error: ${error.message}`;
+        }
+      };
+
+      authForm.addEventListener("submit", (event) => postAuth("login", event), { capture: true });
+      authToggleBtn.addEventListener("click", () => toggleAuth(authSection.classList.contains("hidden")));
+      loginBtn.addEventListener("click", (event) => postAuth("login", event), { capture: true });
+      registerBtn.addEventListener("click", (event) => postAuth("register", event), { capture: true });
+      logoutBtn.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        await fetch("/api/logout", { method: "POST", credentials: "same-origin" });
+        const response = await fetch("/api/guest", { method: "POST", credentials: "same-origin" });
+        const payload = await response.json();
+        showUser(payload.user);
+        window.dispatchEvent(new CustomEvent("stemdeck:auth", { detail: payload }));
+      }, { capture: true });
+
+      fetch("/api/me", { credentials: "same-origin" })
+        .then(async (response) => (response.ok ? (await response.json()).user : null))
+        .then((user) => {
+          if (user) {
+            showUser(user);
+          }
+        })
+        .catch(() => {});
+    })();
+  </script>
+  <script src="/assets/i18n.js?v=22"></script>
+  <script src="/assets/app.js?v=22"></script>
   <script>
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/sw.js").catch(() => {});

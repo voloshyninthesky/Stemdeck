@@ -14,7 +14,7 @@ Features:
 
 ## Stack
 
-- Backend: FastAPI + SQLite + Celery/RabbitMQ + Demucs + Audio Separator
+- Backend: FastAPI + SQLite + Celery/RabbitMQ + Sherpa-ONNX/UVR + Demucs + Audio Separator
 - Frontend: Vanilla HTML/CSS/JS with English/Ukrainian UI strings
 - Storage: persistent SQLite sessions/jobs plus MinIO S3-compatible object storage in Docker
 
@@ -44,17 +44,26 @@ Open:
 http://localhost:8000
 ```
 
+Run browser E2E smoke tests against the running app:
+
+```bash
+npm install
+npm run test:e2e
+```
+
+The tests use local Chromium by default. Override with `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/path/to/chrome` if needed.
+
 Compose starts:
 
 - `web`: FastAPI web app
-- `worker`: Celery worker for UVR/Demucs processing
+- `worker`: Celery worker for fast UVR and quality Demucs processing
 - `rabbitmq`: queue broker with management UI at `http://localhost:15672`
 - `minio`: lightweight local S3-compatible storage with console at `http://localhost:9001`
 
 Persistent Docker volumes:
 
 - `app_data`: SQLite database and uploaded/generated stems
-- `model_cache`: Demucs and UVR model cache
+- `model_cache`: UVR, optional Spleeter, and Demucs model cache
 - `minio_data`: uploaded/generated audio objects
 - `rabbitmq_data`: RabbitMQ state
 
@@ -185,7 +194,11 @@ OpenAPI, Swagger UI, and ReDoc are disabled in production routes.
 ## Notes
 
 - First Demucs run may download model weights.
-- First fast-mode run may download `UVR-MDX-NET-Voc_FT.onnx` into the model cache.
+- First fast-mode run downloads the Sherpa-ONNX `UVR-MDX-NET-Inst_HQ_4.onnx` model into the model cache.
+- `FAST_SHERPA_UVR_TARGET_STEM=instrumental` keeps models whose primary output is instrumental mapped to the right player channel.
+- Set `FAST_SEPARATOR_BACKEND=spleeter` to use the very fast, lower-quality Spleeter backend.
+- Set `FAST_SEPARATOR_BACKEND=uvr` to use the legacy UVR fast model instead.
 - Existing completed jobs are reused when `REUSE_PROCESSED_OUTPUTS=true` and both stem files exist in the job export folder.
+- Guests can process files without creating an account. Guest sessions use `GUEST_SESSION_HOURS` and are shorter-lived than regular account sessions.
 - Runtime data is ignored by git: `app_data.sqlite3`, `jobs/`, `.env`, and logs.
 - CPU-only stem separation is heavy. A small VPS works for testing, but real songs need patience or a stronger machine.

@@ -1,6 +1,7 @@
 import threading
 import uuid
 import shutil
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -82,6 +83,51 @@ def current_user(
     return user
 
 
+def optional_current_user(
+    vocals_session: str | None = Cookie(default=None, alias=config.SESSION_COOKIE),
+) -> dict[str, Any] | None:
+    return db.get_user_by_session(vocals_session)
+
+
+def guest_session_ttl() -> timedelta:
+    return timedelta(hours=max(1, config.GUEST_SESSION_HOURS))
+
+
+def set_session_cookie(
+    response: Response,
+    token: str,
+    max_age_seconds: int,
+) -> None:
+    response.set_cookie(
+        config.SESSION_COOKIE,
+        token,
+        httponly=True,
+        samesite="lax",
+        max_age=max_age_seconds,
+    )
+
+
+def create_guest_session(response: Response) -> dict[str, Any]:
+    user = db.create_guest_user()
+    token = db.create_session(user["id"], ttl=guest_session_ttl())
+    set_session_cookie(
+        response,
+        token,
+        max_age_seconds=60 * 60 * max(1, config.GUEST_SESSION_HOURS),
+    )
+    user["is_guest"] = True
+    return user
+
+
+def transfer_guest_jobs(
+    vocals_session: str | None,
+    target_user_id: int,
+) -> None:
+    guest = db.get_user_by_session(vocals_session)
+    if guest and guest.get("is_guest"):
+        db.transfer_jobs(guest["id"], target_user_id)
+
+
 def serialize_job(job: dict[str, Any]) -> dict[str, Any]:
     queue_position = db.queue_position(job["id"])
     payload = {
@@ -129,20 +175,17 @@ def register(
     response: Response,
     username: str = Form(...),
     password: str = Form(...),
+    vocals_session: str | None = Cookie(default=None, alias=config.SESSION_COOKIE),
 ) -> dict[str, Any]:
     try:
         user = db.create_user(username, password)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    transfer_guest_jobs(vocals_session, user["id"])
     token = db.create_session(user["id"])
-    response.set_cookie(
-        config.SESSION_COOKIE,
-        token,
-        httponly=True,
-        samesite="lax",
-        max_age=60 * 60 * 24 * config.SESSION_DAYS,
-    )
+    set_session_cookie(response, token, max_age_seconds=60 * 60 * 24 * config.SESSION_DAYS)
+    user["is_guest"] = False
     return {"user": user}
 
 
@@ -151,20 +194,24 @@ def login(
     response: Response,
     username: str = Form(...),
     password: str = Form(...),
+    vocals_session: str | None = Cookie(default=None, alias=config.SESSION_COOKIE),
 ) -> dict[str, Any]:
     user = db.authenticate_user(username, password)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
+    transfer_guest_jobs(vocals_session, user["id"])
     token = db.create_session(user["id"])
-    response.set_cookie(
-        config.SESSION_COOKIE,
-        token,
-        httponly=True,
-        samesite="lax",
-        max_age=60 * 60 * 24 * config.SESSION_DAYS,
-    )
+    set_session_cookie(response, token, max_age_seconds=60 * 60 * 24 * config.SESSION_DAYS)
     return {"user": user}
+
+
+@app.post("/api/guest")
+def guest(response: Response) -> dict[str, Any]:
+    return {
+        "user": create_guest_session(response),
+        "ttl_hours": max(1, config.GUEST_SESSION_HOURS),
+    }
 
 
 @app.post("/api/logout")
@@ -179,8 +226,16 @@ def logout(
 
 
 @app.get("/api/me")
-def me(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
-    return {"user": user}
+def me(
+    response: Response,
+    user: dict[str, Any] | None = Depends(optional_current_user),
+) -> dict[str, Any]:
+    if user:
+        return {"user": user}
+    return {
+        "user": create_guest_session(response),
+        "ttl_hours": max(1, config.GUEST_SESSION_HOURS),
+    }
 
 
 @app.get("/api/jobs")

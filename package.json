@@ -1,0 +1,17 @@
+{
+  "name": "vocals",
+  "version": "1.0.0",
+  "description": "Stemdeck is a regular web app for splitting uploaded audio/video files into instrumental and vocal stems.",
+  "main": "index.js",
+  "scripts": {
+    "test": "npm run test:e2e",
+    "test:e2e": "node --test tests/e2e-smoke.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "playwright-core": "^1.59.1"
+  }
+}

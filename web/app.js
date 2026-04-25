@@ -5,6 +5,7 @@ const loginBtn = document.getElementById("loginBtn");
 const registerBtn = document.getElementById("registerBtn");
 const accountBar = document.getElementById("accountBar");
 const usernameLabel = document.getElementById("usernameLabel");
+const authToggleBtn = document.getElementById("authToggleBtn");
 const logoutBtn = document.getElementById("logoutBtn");
 const languageButtons = document.querySelectorAll("[data-lang]");
 const appSection = document.getElementById("appSection");
@@ -26,12 +27,61 @@ const vocalsMute = document.getElementById("vocalsMute");
 const downloadInstrumental = document.getElementById("downloadInstrumental");
 const downloadVocals = document.getElementById("downloadVocals");
 
-const { translations, detectLanguage } = window.StemdeckI18n;
+const fallbackTranslations = {
+  en: {
+    heroTitle: "Extract vocal or instrumental",
+    logout: "Logout",
+    username: "Username",
+    password: "Password",
+    login: "Login",
+    createAccount: "Sign up",
+    authPrompt: "Optional: sign in to keep tracks longer.",
+    guest: "Guest",
+    newSplit: "New",
+    dropFile: "Drop in an audio or video file",
+    process: "Process",
+    fastModeTitle: "Fast mode",
+    fastModeHelp: "Recommended for quick results. Turn off for higher quality.",
+    chooseFile: "Choose a file to start a job.",
+    library: "Library",
+    pastUploads: "Past uploads",
+    refresh: "Refresh",
+    mixer: "Mixer",
+    player: "Player",
+    play: "Play",
+    pause: "Pause",
+    instrumental: "Instrumental",
+    vocals: "Vocals",
+    mute: "Mute",
+    unmute: "Unmute",
+    downloadInstrumental: "Download instrumental",
+    downloadVocals: "Download vocals",
+    noJobs: "No tracks yet.",
+    delete: "Delete",
+    loginProgress: "Logging in...",
+    createAccountProgress: "Creating account...",
+    readyToStart: "Choose a file.",
+    chooseFileFirst: "Choose a file first.",
+    queued: (position) =>
+      `${position ? `Queue: ${position}. ` : ""}Waiting. You can close this page.`,
+    processing: "Processing. You can close this page.",
+    ready: (mode) => `Ready · ${mode === "fast" ? "Fast" : "Quality"}`,
+    failed: "Failed.",
+    error: (message) => `Error: ${message}`,
+  },
+};
 
-let language = detectLanguage();
-let t = translations[language];
+const i18n = window.StemdeckI18n || {
+  translations: fallbackTranslations,
+  detectLanguage: () => "en",
+};
+const { translations: appTranslations, detectLanguage: detectAppLanguage } = i18n;
+
+let language = detectAppLanguage();
+let t = appTranslations[language];
 
 let jobs = [];
+let currentUser = null;
 let activeJobId = null;
 let pollTimer = null;
 let instrumentalAudio = null;
@@ -48,6 +98,7 @@ let isSeeking = false;
 let lastManualSeekAt = 0;
 let audioGraphUnavailable = false;
 let desiredPlaybackTime = 0;
+let authPanelOpen = false;
 
 const formatTime = (sec) => {
   const total = Math.max(0, Math.floor(sec || 0));
@@ -69,6 +120,17 @@ const api = async (url, options = {}) => {
     throw new Error(detail);
   }
   return res.json();
+};
+
+const scrubCredentialsFromUrl = () => {
+  const currentUrl = new URL(window.location.href);
+  if (!currentUrl.searchParams.has("password") && !currentUrl.searchParams.has("username")) {
+    return;
+  }
+
+  currentUrl.searchParams.delete("password");
+  currentUrl.searchParams.delete("username");
+  window.history.replaceState({}, document.title, `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`);
 };
 
 const setStatus = (text) => {
@@ -99,6 +161,9 @@ const refreshLocalizedUi = () => {
   applyTranslations();
   refreshVolumes();
   renderJobs();
+  if (currentUser) {
+    usernameLabel.textContent = currentUser.username;
+  }
   if (instrumentalAudio) {
     playBtn.textContent = instrumentalAudio.paused ? t.play : t.pause;
   }
@@ -108,25 +173,48 @@ const refreshLocalizedUi = () => {
 };
 
 const setLanguage = (nextLanguage) => {
-  if (!translations[nextLanguage]) {
+  if (!appTranslations[nextLanguage]) {
     return;
   }
 
   language = nextLanguage;
-  t = translations[language];
+  t = appTranslations[language];
   localStorage.setItem("stemdeck-language", language);
   refreshLocalizedUi();
 };
 
+const setAuthPanelOpen = (open, focusForm = false) => {
+  authPanelOpen = open;
+  authSection.classList.toggle("hidden", !open);
+  if (open) {
+    setAuthStatus(t.authPrompt);
+  }
+  if (open && focusForm) {
+    document.getElementById("username")?.focus();
+  }
+};
+
 const showApp = (user) => {
-  authSection.classList.add("hidden");
+  currentUser = user;
+  if (user.is_guest) {
+    setAuthPanelOpen(false);
+    usernameLabel.classList.add("hidden");
+    authToggleBtn.classList.remove("hidden");
+    logoutBtn.classList.add("hidden");
+  } else {
+    setAuthPanelOpen(false);
+    usernameLabel.classList.remove("hidden");
+    authToggleBtn.classList.add("hidden");
+    logoutBtn.classList.remove("hidden");
+  }
   appSection.classList.remove("hidden");
   accountBar.classList.remove("hidden");
   usernameLabel.textContent = user.username;
 };
 
 const showAuth = () => {
-  authSection.classList.remove("hidden");
+  currentUser = null;
+  setAuthPanelOpen(true);
   appSection.classList.add("hidden");
   accountBar.classList.add("hidden");
   playerSection.classList.add("hidden");
@@ -485,6 +573,12 @@ const submitAuth = async (mode) => {
   }
 };
 
+const handleAuthSubmit = (event, mode = "login") => {
+  event.preventDefault();
+  event.stopPropagation();
+  submitAuth(mode);
+};
+
 const init = async () => {
   try {
     const payload = await api("/api/me");
@@ -495,18 +589,32 @@ const init = async () => {
   }
 };
 
-authForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-  submitAuth("login");
-});
+authForm.addEventListener("submit", handleAuthSubmit, { capture: true });
 
-registerBtn.addEventListener("click", () => submitAuth("register"));
+authToggleBtn.addEventListener("click", () => setAuthPanelOpen(!authPanelOpen, true));
+
+loginBtn.addEventListener("click", (event) => handleAuthSubmit(event, "login"));
+
+registerBtn.addEventListener("click", (event) => handleAuthSubmit(event, "register"));
+
+window.addEventListener("stemdeck:auth", async (event) => {
+  const user = event.detail?.user;
+  if (!user) {
+    return;
+  }
+
+  showApp(user);
+  setStatus(t.readyToStart);
+  await refreshJobs();
+});
 
 logoutBtn.addEventListener("click", async () => {
   await api("/api/logout", { method: "POST" });
   jobs = [];
   await resetPlayer();
-  showAuth();
+  const payload = await api("/api/guest", { method: "POST" });
+  showApp(payload.user);
+  await refreshJobs();
 });
 
 refreshBtn.addEventListener("click", refreshJobs);
@@ -612,5 +720,6 @@ languageButtons.forEach((button) => {
   button.addEventListener("click", () => setLanguage(button.dataset.lang));
 });
 
+scrubCredentialsFromUrl();
 applyTranslations();
 init();

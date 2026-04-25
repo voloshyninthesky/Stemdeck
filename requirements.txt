@@ -7,5 +7,6 @@ torchaudio
 torchcodec
 demucs
 soundfile
+sherpa-onnx
 audio-separator[cpu]
 minio

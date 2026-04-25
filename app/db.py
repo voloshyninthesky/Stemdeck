@@ -34,6 +34,7 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL UNIQUE,
                 password_hash TEXT NOT NULL,
+                is_guest INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL
             );
 
@@ -69,6 +70,13 @@ def init_db() -> None:
             );
             """
         )
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(users)").fetchall()
+        }
+        if "is_guest" not in columns:
+            conn.execute("ALTER TABLE users ADD COLUMN is_guest INTEGER NOT NULL DEFAULT 0")
+
         columns = {
             row["name"]
             for row in conn.execute("PRAGMA table_info(jobs)").fetchall()
@@ -115,7 +123,7 @@ def create_user(username: str, password: str) -> dict[str, Any]:
             )
             user_id = cur.lastrowid
             row = conn.execute(
-                "SELECT id, username, created_at FROM users WHERE id = ?", (user_id,)
+                "SELECT id, username, is_guest, created_at FROM users WHERE id = ?", (user_id,)
             ).fetchone()
     except sqlite3.IntegrityError as exc:
         raise ValueError("Username is already taken") from exc
@@ -123,24 +131,58 @@ def create_user(username: str, password: str) -> dict[str, Any]:
     user = _row_to_dict(row)
     if not user:
         raise ValueError("Failed to create user")
+    user["is_guest"] = bool(user["is_guest"])
     return user
+
+
+def create_guest_user() -> dict[str, Any]:
+    now = _now()
+    for _ in range(5):
+        username = f"guest-{secrets.token_hex(4)}"
+        try:
+            with _connect() as conn:
+                cur = conn.execute(
+                    """
+                    INSERT INTO users (username, password_hash, is_guest, created_at)
+                    VALUES (?, '', 1, ?)
+                    """,
+                    (username, now),
+                )
+                row = conn.execute(
+                    "SELECT id, username, is_guest, created_at FROM users WHERE id = ?",
+                    (cur.lastrowid,),
+                ).fetchone()
+            user = _row_to_dict(row)
+            if user:
+                user["is_guest"] = bool(user["is_guest"])
+                return user
+        except sqlite3.IntegrityError:
+            continue
+    raise ValueError("Failed to create guest user")
 
 
 def authenticate_user(username: str, password: str) -> dict[str, Any] | None:
     with _connect() as conn:
         row = conn.execute(
-            "SELECT * FROM users WHERE username = ?", (username.strip().lower(),)
+            "SELECT * FROM users WHERE username = ? AND is_guest = 0",
+            (username.strip().lower(),),
         ).fetchone()
 
     user = _row_to_dict(row)
     if not user or not verify_password(password, user["password_hash"]):
         return None
-    return {"id": user["id"], "username": user["username"], "created_at": user["created_at"]}
+    return {
+        "id": user["id"],
+        "username": user["username"],
+        "is_guest": bool(user["is_guest"]),
+        "created_at": user["created_at"],
+    }
 
 
-def create_session(user_id: int) -> str:
+def create_session(user_id: int, ttl: timedelta | None = None) -> str:
     token = secrets.token_urlsafe(32)
-    expires_at = (datetime.now(UTC) + timedelta(days=config.SESSION_DAYS)).isoformat()
+    ttl = ttl or timedelta(days=config.SESSION_DAYS)
+    expires_at = (datetime.now(UTC) + ttl).isoformat()
     with _connect() as conn:
         conn.execute(
             """
@@ -165,6 +207,7 @@ def get_user_by_session(token: str | None) -> dict[str, Any] | None:
         row = conn.execute(
             """
             SELECT users.id, users.username, users.created_at
+                 , users.is_guest
             FROM sessions
             JOIN users ON users.id = sessions.user_id
             WHERE sessions.token = ? AND sessions.expires_at > ?
@@ -172,7 +215,20 @@ def get_user_by_session(token: str | None) -> dict[str, Any] | None:
             (token, _now()),
         ).fetchone()
 
-    return _row_to_dict(row)
+    user = _row_to_dict(row)
+    if user:
+        user["is_guest"] = bool(user["is_guest"])
+    return user
+
+
+def transfer_jobs(from_user_id: int, to_user_id: int) -> None:
+    if from_user_id == to_user_id:
+        return
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE jobs SET user_id = ? WHERE user_id = ?",
+            (to_user_id, from_user_id),
+        )
 
 
 def create_job(
