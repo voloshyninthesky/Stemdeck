@@ -10,10 +10,10 @@
   <meta name="apple-mobile-web-app-title" content="Stemdeck" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/assets/style.css?v=22" />
+  <link rel="stylesheet" href="/assets/style.css?v=24" />
   <script>
     (() => {
-      const shellVersion = "stemdeck-v22";
+      const shellVersion = "stemdeck-v24";
       const url = new URL(window.location.href);
       const hadCredentials = url.searchParams.has("username") || url.searchParams.has("password");
 
@@ -85,64 +85,95 @@
     </section>
 
     <section id="appSection" class="hidden">
-      <section class="upload-panel">
-        <div>
-          <p class="eyebrow" data-i18n="newSplit">New split</p>
-          <h2 data-i18n="dropFile">Drop in an audio or video file</h2>
+      <section class="feature-shell">
+        <aside class="feature-rail">
+          <p class="eyebrow" data-i18n="toolsLabel">Tools</p>
+          <div class="feature-nav" role="tablist" aria-label="Feature selector">
+            <button type="button" class="feature-chip active" data-feature="extractor" data-i18n="featureExtractor">Extract</button>
+            <button type="button" class="feature-chip" data-feature="tuner" data-i18n="featureTuner">Tuner</button>
+            <button type="button" class="feature-chip" data-feature="more" data-i18n="featureMore">More soon</button>
+          </div>
+        </aside>
+
+        <div class="feature-content">
+          <section data-feature-panel="extractor">
+            <section class="upload-panel">
+              <div>
+                <p class="eyebrow" data-i18n="newSplit">New split</p>
+                <h2 data-i18n="dropFile">Drop in an audio or video file</h2>
+              </div>
+              <div class="upload-row">
+                <input id="audioFile" type="file" accept="audio/*,video/*" />
+                <button id="processBtn" type="button" data-i18n="process">Process</button>
+              </div>
+              <label class="mode-toggle" for="fastMode">
+                <input id="fastMode" type="checkbox" checked />
+                <span>
+                  <strong data-i18n="fastModeTitle">Fast mode</strong>
+                  <small data-i18n="fastModeHelp">Recommended for quick results. Turn off for higher quality.</small>
+                </span>
+              </label>
+              <p id="status" class="status" data-i18n="chooseFile">Choose a file to start a job.</p>
+            </section>
+
+            <section class="jobs-layout">
+              <section class="jobs-panel">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow" data-i18n="library">Library</p>
+                    <h2 data-i18n="pastUploads">Past uploads</h2>
+                  </div>
+                  <button id="refreshBtn" type="button" class="secondary" data-i18n="refresh">Refresh</button>
+                </div>
+                <div id="jobsList" class="jobs-list"></div>
+              </section>
+
+              <section id="playerSection" class="player-panel hidden">
+                <p class="eyebrow" data-i18n="mixer">Mixer</p>
+                <h2 id="playerTitle" data-i18n="player">Player</h2>
+                <div class="controls-row">
+                  <button id="playBtn" type="button" data-i18n="play">Play</button>
+                  <input id="seek" type="range" min="0" max="1000" value="0" />
+                  <span id="timeLabel">0:00 / 0:00</span>
+                </div>
+
+                <div class="mix-grid">
+                  <div>
+                    <h3 data-i18n="instrumental">Instrumental</h3>
+                    <input id="instrumentalVolume" type="range" min="0" max="100" value="100" />
+                    <button id="instrumentalMute" type="button" data-i18n="mute">Mute</button>
+                  </div>
+                  <div>
+                    <h3 data-i18n="vocals">Vocals</h3>
+                    <input id="vocalsVolume" type="range" min="0" max="100" value="100" />
+                    <button id="vocalsMute" type="button" data-i18n="mute">Mute</button>
+                  </div>
+                </div>
+
+                <div class="download-row">
+                  <a id="downloadInstrumental" href="#" download="instrumental.wav" data-i18n="downloadInstrumental">Download instrumental</a>
+                  <a id="downloadVocals" href="#" download="vocals.wav" data-i18n="downloadVocals">Download vocals</a>
+                </div>
+              </section>
+            </section>
+          </section>
+
+          <section data-feature-panel="tuner" class="feature-panel hidden">
+            <article class="card future-card">
+              <p class="eyebrow" data-i18n="featureTuner">Tuner</p>
+              <h2 data-i18n="tunerTitle">Vocal tuner</h2>
+              <p data-i18n="tunerHint">Soon: pitch tracking and live guidance for singers.</p>
+            </article>
+          </section>
+
+          <section data-feature-panel="more" class="feature-panel hidden">
+            <article class="card future-card">
+              <p class="eyebrow" data-i18n="featureMore">More soon</p>
+              <h2 data-i18n="futureTitle">More features are on the way</h2>
+              <p data-i18n="futureHint">This layout is ready for new music tools in one app.</p>
+            </article>
+          </section>
         </div>
-        <div class="upload-row">
-          <input id="audioFile" type="file" accept="audio/*,video/*" />
-          <button id="processBtn" type="button" data-i18n="process">Process</button>
-        </div>
-        <label class="mode-toggle" for="fastMode">
-          <input id="fastMode" type="checkbox" checked />
-          <span>
-            <strong data-i18n="fastModeTitle">Fast mode</strong>
-            <small data-i18n="fastModeHelp">Recommended for quick results. Turn off for higher quality.</small>
-          </span>
-        </label>
-        <p id="status" class="status" data-i18n="chooseFile">Choose a file to start a job.</p>
-      </section>
-
-      <section class="jobs-layout">
-        <section class="jobs-panel">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow" data-i18n="library">Library</p>
-              <h2 data-i18n="pastUploads">Past uploads</h2>
-            </div>
-            <button id="refreshBtn" type="button" class="secondary" data-i18n="refresh">Refresh</button>
-          </div>
-          <div id="jobsList" class="jobs-list"></div>
-        </section>
-
-        <section id="playerSection" class="player-panel hidden">
-          <p class="eyebrow" data-i18n="mixer">Mixer</p>
-          <h2 id="playerTitle" data-i18n="player">Player</h2>
-          <div class="controls-row">
-            <button id="playBtn" type="button" data-i18n="play">Play</button>
-            <input id="seek" type="range" min="0" max="1000" value="0" />
-            <span id="timeLabel">0:00 / 0:00</span>
-          </div>
-
-          <div class="mix-grid">
-            <div>
-              <h3 data-i18n="instrumental">Instrumental</h3>
-              <input id="instrumentalVolume" type="range" min="0" max="100" value="100" />
-              <button id="instrumentalMute" type="button" data-i18n="mute">Mute</button>
-            </div>
-            <div>
-              <h3 data-i18n="vocals">Vocals</h3>
-              <input id="vocalsVolume" type="range" min="0" max="100" value="100" />
-              <button id="vocalsMute" type="button" data-i18n="mute">Mute</button>
-            </div>
-          </div>
-
-          <div class="download-row">
-            <a id="downloadInstrumental" href="#" download="instrumental.wav" data-i18n="downloadInstrumental">Download instrumental</a>
-            <a id="downloadVocals" href="#" download="vocals.wav" data-i18n="downloadVocals">Download vocals</a>
-          </div>
-        </section>
       </section>
     </section>
   </main>
@@ -241,8 +272,8 @@
         .catch(() => {});
     })();
   </script>
-  <script src="/assets/i18n.js?v=22"></script>
-  <script src="/assets/app.js?v=22"></script>
+  <script src="/assets/i18n.js?v=24"></script>
+  <script src="/assets/app.js?v=24"></script>
   <script>
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/sw.js").catch(() => {});

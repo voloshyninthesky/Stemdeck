@@ -8,6 +8,8 @@ const usernameLabel = document.getElementById("usernameLabel");
 const authToggleBtn = document.getElementById("authToggleBtn");
 const logoutBtn = document.getElementById("logoutBtn");
 const languageButtons = document.querySelectorAll("[data-lang]");
+const featureButtons = document.querySelectorAll("[data-feature]");
+const featurePanels = document.querySelectorAll("[data-feature-panel]");
 const appSection = document.getElementById("appSection");
 const audioFile = document.getElementById("audioFile");
 const fastMode = document.getElementById("fastMode");
@@ -37,6 +39,14 @@ const fallbackTranslations = {
     createAccount: "Sign up",
     authPrompt: "Optional: sign in to keep tracks longer.",
     guest: "Guest",
+    toolsLabel: "Tools",
+    featureExtractor: "Extract",
+    featureTuner: "Tuner",
+    featureMore: "More soon",
+    tunerTitle: "Vocal tuner",
+    tunerHint: "Soon: pitch tracking and live guidance for singers.",
+    futureTitle: "More features are on the way",
+    futureHint: "This layout is ready for new music tools in one app.",
     newSplit: "New",
     dropFile: "Drop in an audio or video file",
     process: "Process",
@@ -99,6 +109,9 @@ let lastManualSeekAt = 0;
 let audioGraphUnavailable = false;
 let desiredPlaybackTime = 0;
 let authPanelOpen = false;
+let activeFeature = "extractor";
+let userPlaying = false;
+
 
 const formatTime = (sec) => {
   const total = Math.max(0, Math.floor(sec || 0));
@@ -155,6 +168,25 @@ const applyTranslations = () => {
       el.textContent = value;
     }
   });
+};
+
+const setFeature = (feature, persist = true) => {
+  const valid = [...featurePanels].some((panel) => panel.dataset.featurePanel === feature);
+  if (!valid) {
+    return;
+  }
+  activeFeature = feature;
+  featureButtons.forEach((button) => {
+    const isActive = button.dataset.feature === feature;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-pressed", String(isActive));
+  });
+  featurePanels.forEach((panel) => {
+    panel.classList.toggle("hidden", panel.dataset.featurePanel !== feature);
+  });
+  if (persist) {
+    localStorage.setItem("stemdeck-feature", feature);
+  }
 };
 
 const refreshLocalizedUi = () => {
@@ -238,7 +270,9 @@ const resetPlayer = async () => {
   pendingSeekTime = null;
   pendingSeekRatio = null;
   desiredPlaybackTime = 0;
+  userPlaying = false;
   playBtn.textContent = t.play;
+
   seek.value = "0";
   timeLabel.textContent = "0:00 / 0:00";
 };
@@ -445,6 +479,61 @@ const loadPlayer = async (job) => {
   instrumentalAudio.addEventListener("loadedmetadata", applyPendingSeek);
   vocalsAudio.addEventListener("loadedmetadata", applyPendingSeek);
 
+  let isInstrumentalWaiting = false;
+  let isVocalsWaiting = false;
+
+  const handleWaiting = (isInstrumental) => {
+    if (isInstrumental) isInstrumentalWaiting = true;
+    else isVocalsWaiting = true;
+
+    if (userPlaying && (!instrumentalAudio.paused || !vocalsAudio.paused)) {
+      if (isInstrumental) {
+        vocalsAudio.pause();
+      } else {
+        instrumentalAudio.pause();
+      }
+      playBtn.textContent = "...";
+    }
+  };
+
+  const handlePlaying = (isInstrumental) => {
+    if (isInstrumental) isInstrumentalWaiting = false;
+    else isVocalsWaiting = false;
+
+    if (userPlaying && !isInstrumentalWaiting && !isVocalsWaiting) {
+      instrumentalAudio.play().catch(() => {});
+      vocalsAudio.play().catch(() => {});
+      playBtn.textContent = t.pause;
+    }
+  };
+
+  instrumentalAudio.addEventListener("waiting", () => handleWaiting(true));
+  vocalsAudio.addEventListener("waiting", () => handleWaiting(false));
+
+  instrumentalAudio.addEventListener("playing", () => handlePlaying(true));
+  vocalsAudio.addEventListener("playing", () => handlePlaying(false));
+
+  const handleEnded = () => {
+    userPlaying = false;
+    instrumentalAudio.pause();
+    vocalsAudio.pause();
+    instrumentalAudio.currentTime = 0;
+    vocalsAudio.currentTime = 0;
+    playBtn.textContent = t.play;
+    seek.value = "0";
+  };
+
+  instrumentalAudio.addEventListener("ended", handleEnded);
+  vocalsAudio.addEventListener("ended", handleEnded);
+
+  const handleAudioError = (e) => {
+    console.error("Audio error:", e);
+    setStatus(t.error("Failed to load audio stream."));
+  };
+  instrumentalAudio.addEventListener("error", handleAudioError);
+  vocalsAudio.addEventListener("error", handleAudioError);
+
+
   playerTitle.textContent = job.filename;
   downloadInstrumental.href = instrumentalUrl;
   downloadVocals.href = vocalsUrl;
@@ -580,6 +669,13 @@ const handleAuthSubmit = (event, mode = "login") => {
 };
 
 const init = async () => {
+  const savedFeature = localStorage.getItem("stemdeck-feature");
+  if (savedFeature) {
+    setFeature(savedFeature, false);
+  } else {
+    setFeature("extractor", false);
+  }
+
   try {
     const payload = await api("/api/me");
     showApp(payload.user);
@@ -661,15 +757,18 @@ playBtn.addEventListener("click", async () => {
   }
 
   if (instrumentalAudio.paused) {
+    userPlaying = true;
     applyPendingSeek();
     await seekBoth(desiredPlaybackTime);
     await Promise.all([instrumentalAudio.play(), vocalsAudio.play()]);
     playBtn.textContent = t.pause;
   } else {
+    userPlaying = false;
     instrumentalAudio.pause();
     vocalsAudio.pause();
     playBtn.textContent = t.play;
   }
+
 });
 
 const handleSeek = () => {
@@ -718,6 +817,10 @@ vocalsMute.addEventListener("click", () => {
 
 languageButtons.forEach((button) => {
   button.addEventListener("click", () => setLanguage(button.dataset.lang));
+});
+
+featureButtons.forEach((button) => {
+  button.addEventListener("click", () => setFeature(button.dataset.feature));
 });
 
 scrubCredentialsFromUrl();

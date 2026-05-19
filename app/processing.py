@@ -203,11 +203,23 @@ def ensure_sherpa_uvr_model() -> Path:
     if model_path.exists() and model_path.stat().st_size > 0:
         return model_path
 
+    temp_path = model_path.with_suffix(".tmp")
     url = f"{config.FAST_SHERPA_UVR_MODEL_URL_BASE}/{config.FAST_SHERPA_UVR_MODEL}"
-    urllib.request.urlretrieve(url, model_path)
-    if not model_path.exists() or model_path.stat().st_size == 0:
-        raise RuntimeError("Fast UVR separator model download is incomplete")
+    try:
+        with urllib.request.urlopen(url, timeout=30) as response, temp_path.open("wb") as out_file:
+            shutil.copyfileobj(response, out_file)
+        
+        if not temp_path.exists() or temp_path.stat().st_size == 0:
+            raise RuntimeError("Fast UVR separator model download is empty")
+            
+        temp_path.replace(model_path)
+    except Exception as exc:
+        if temp_path.exists():
+            temp_path.unlink(missing_ok=True)
+        raise RuntimeError(f"Fast UVR separator model download failed: {exc}") from exc
+
     return model_path
+
 
 
 def run_spleeter_separator(
@@ -267,14 +279,46 @@ def ensure_spleeter_model() -> Path:
 
     root.mkdir(parents=True, exist_ok=True)
     archive = root / "sherpa-onnx-spleeter-2stems-fp16.tar.bz2"
-    urllib.request.urlretrieve(config.FAST_SPLEETER_MODEL_URL, archive)
-    with tarfile.open(archive, "r:bz2") as tar:
-        safe_extract(tar, root)
-    archive.unlink(missing_ok=True)
+    temp_archive = archive.with_suffix(".tmp")
+    
+    try:
+        with urllib.request.urlopen(config.FAST_SPLEETER_MODEL_URL, timeout=30) as response, temp_archive.open("wb") as out_file:
+            shutil.copyfileobj(response, out_file)
+        
+        if not temp_archive.exists() or temp_archive.stat().st_size == 0:
+            raise RuntimeError("Spleeter model download is empty")
+            
+        temp_archive.replace(archive)
+        
+        temp_extract_dir = root / "spleeter_temp_extract"
+        if temp_extract_dir.exists():
+            shutil.rmtree(temp_extract_dir, ignore_errors=True)
+        temp_extract_dir.mkdir(parents=True, exist_ok=True)
+        
+        with tarfile.open(archive, "r:bz2") as tar:
+            safe_extract(tar, temp_extract_dir)
+            
+        extracted_folder = temp_extract_dir / "sherpa-onnx-spleeter-2stems-fp16"
+        if not extracted_folder.exists():
+            raise RuntimeError("Archive did not contain expected model directory")
+            
+        if model_dir.exists():
+            shutil.rmtree(model_dir, ignore_errors=True)
+        extracted_folder.rename(model_dir)
+        shutil.rmtree(temp_extract_dir, ignore_errors=True)
+    except Exception as exc:
+        if temp_archive.exists():
+            temp_archive.unlink(missing_ok=True)
+        if archive.exists():
+            archive.unlink(missing_ok=True)
+        raise RuntimeError(f"Spleeter model preparation failed: {exc}") from exc
+    finally:
+        archive.unlink(missing_ok=True)
 
     if not all(path.exists() and path.stat().st_size > 0 for path in required):
         raise RuntimeError("Fast separator model download is incomplete")
     return model_dir
+
 
 
 def safe_extract(tar: tarfile.TarFile, destination: Path) -> None:

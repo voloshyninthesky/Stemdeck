@@ -3,7 +3,9 @@ import secrets
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+import contextlib
+from typing import Any, Generator
+
 
 from app import config
 
@@ -15,11 +17,16 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def _connect() -> sqlite3.Connection:
+@contextlib.contextmanager
+def _connect() -> Generator[sqlite3.Connection, None, None]:
     conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def _row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:

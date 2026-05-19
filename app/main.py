@@ -322,6 +322,13 @@ def delete_job(
     return {"status": "deleted"}
 
 
+MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB limit
+ALLOWED_EXTENSIONS = {
+    ".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac",
+    ".mp4", ".mkv", ".avi", ".mov"
+}
+
+
 @app.post("/api/jobs")
 async def create_job(
     file: UploadFile = File(...),
@@ -331,19 +338,38 @@ async def create_job(
     if not file.filename:
         raise HTTPException(status_code=400, detail="Missing file name")
 
+    original_filename = Path(file.filename).name
+    file_ext = Path(original_filename).suffix.lower()
+    if file_ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type '{file_ext}'. Allowed types: {', '.join(sorted(ALLOWED_EXTENSIONS))}",
+        )
+
     job_id = str(uuid.uuid4())
     job_dir = config.JOBS_DIR / job_id
     input_dir = job_dir / "input"
     input_dir.mkdir(parents=True, exist_ok=True)
 
-    original_filename = Path(file.filename).name
     raw_input = input_dir / original_filename
-    with raw_input.open("wb") as f:
-        while True:
-            chunk = await file.read(1024 * 1024)
-            if not chunk:
-                break
-            f.write(chunk)
+    total_written = 0
+    try:
+        with raw_input.open("wb") as f:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total_written += len(chunk)
+                if total_written > MAX_FILE_SIZE:
+                    raise HTTPException(
+                        status_code=413,
+                        detail="File is too large. Maximum allowed size is 100MB.",
+                    )
+                f.write(chunk)
+    except Exception as exc:
+        if job_dir.exists():
+            shutil.rmtree(job_dir, ignore_errors=True)
+        raise exc
 
     input_key = storage.put_file(raw_input, f"{job_id}/input/{original_filename}")
     separation_mode = "fast" if fast_mode else "quality"
@@ -360,3 +386,4 @@ async def create_job(
 
     refreshed = db.get_job(job_id, user["id"]) or job
     return {"job": serialize_job(refreshed)}
+
