@@ -41,10 +41,7 @@ const fallbackTranslations = {
     guest: "Guest",
     toolsLabel: "Tools",
     featureExtractor: "Extract",
-    featureTuner: "Tuner",
     featureMore: "More soon",
-    tunerTitle: "Vocal tuner",
-    tunerHint: "Soon: pitch tracking and live guidance for singers.",
     futureTitle: "More features are on the way",
     futureHint: "This layout is ready for new music tools in one app.",
     newSplit: "New",
@@ -111,6 +108,9 @@ let desiredPlaybackTime = 0;
 let authPanelOpen = false;
 let activeFeature = "extractor";
 let userPlaying = false;
+
+
+
 
 
 const formatTime = (sec) => {
@@ -187,7 +187,9 @@ const setFeature = (feature, persist = true) => {
   if (persist) {
     localStorage.setItem("stemdeck-feature", feature);
   }
+
 };
+
 
 const refreshLocalizedUi = () => {
   applyTranslations();
@@ -826,3 +828,6 @@ featureButtons.forEach((button) => {
 scrubCredentialsFromUrl();
 applyTranslations();
 init();
+
+;
+
