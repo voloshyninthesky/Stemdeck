@@ -10,10 +10,10 @@
   <meta name="apple-mobile-web-app-title" content="Stemdeck" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/assets/style.css?v=28" />
+  <link rel="stylesheet" href="/assets/style.css?v=29" />
   <script>
     (() => {
-      const shellVersion = "stemdeck-v28";
+      const shellVersion = "stemdeck-v29";
       const url = new URL(window.location.href);
       const hadCredentials = url.searchParams.has("username") || url.searchParams.has("password");
 
@@ -90,7 +90,6 @@
           <p class="eyebrow" data-i18n="toolsLabel">Tools</p>
           <div class="feature-nav" role="tablist" aria-label="Feature selector">
             <button type="button" class="feature-chip active" data-feature="extractor" data-i18n="featureExtractor">Extract</button>
-            <button type="button" class="feature-chip" data-feature="more" data-i18n="featureMore">More soon</button>
           </div>
         </aside>
 
@@ -159,13 +158,7 @@
 
 
 
-          <section data-feature-panel="more" class="feature-panel hidden">
-            <article class="card future-card">
-              <p class="eyebrow" data-i18n="featureMore">More soon</p>
-              <h2 data-i18n="futureTitle">More features are on the way</h2>
-              <p data-i18n="futureHint">This layout is ready for new music tools in one app.</p>
-            </article>
-          </section>
+
         </div>
       </section>
     </section>
@@ -265,8 +258,8 @@
         .catch(() => {});
     })();
   </script>
-  <script src="/assets/i18n.js?v=28"></script>
-  <script src="/assets/app.js?v=28"></script>
+  <script src="/assets/i18n.js?v=29"></script>
+  <script src="/assets/app.js?v=29"></script>
   <script>
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/sw.js").catch(() => {});
