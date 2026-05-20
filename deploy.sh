@@ -1,0 +1,52 @@
+#!/bin/bash
+# VPS Deployment Script for Stemdeck
+
+# Exit immediately if a command exits with a non-zero status
+set -e
+
+# Deployment Configuration
+VPS_HOST="194.62.248.44"
+VPS_USER="root"
+VPS_PATH="/opt/stemdeck"
+SSH_KEY="/Users/vadymvoloshyn/.ssh/id_rsa2"
+
+# Colors for styling terminal output
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
+echo -e "${BLUE}==============================================${NC}"
+echo -e "${BLUE}        Stemdeck VPS Deployment Script        ${NC}"
+echo -e "${BLUE}==============================================${NC}"
+
+# Check if the SSH private key is present on the local machine
+if [ ! -f "$SSH_KEY" ]; then
+    echo -e "${RED}Error: Private SSH key not found at $SSH_KEY${NC}"
+    echo -e "Please ensure your key is located there or update the SSH_KEY variable inside this script."
+    exit 1
+fi
+
+# 1. Syncing codebase to VPS via rsync
+echo -e "\n${YELLOW}[1/2] Syncing codebase to VPS...${NC}"
+rsync -avz \
+  --exclude '.git' \
+  --exclude 'node_modules' \
+  --exclude 'app_data.sqlite3' \
+  --exclude '.env' \
+  --exclude 'output' \
+  --exclude 'jobs' \
+  --exclude '.DS_Store' \
+  --exclude '.ruff_cache' \
+  -e "ssh -i $SSH_KEY -o StrictHostKeyChecking=no" \
+  ./ ${VPS_USER}@${VPS_HOST}:${VPS_PATH}/
+
+# 2. Triggering container build and restart via SSH
+echo -e "\n${YELLOW}[2/2] Rebuilding and restarting Docker containers on VPS...${NC}"
+ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no ${VPS_USER}@${VPS_HOST} "cd ${VPS_PATH} && docker compose up -d --build"
+
+echo -e "\n${GREEN}==============================================${NC}"
+echo -e "${GREEN}    Deployment Completed Successfully! 🎉    ${NC}"
+echo -e "${GREEN}==============================================${NC}"
+echo -e "Your app is live at: ${BLUE}http://${VPS_HOST}:8000${NC}\n"
