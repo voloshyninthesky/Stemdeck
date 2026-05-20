@@ -75,3 +75,10 @@ STORAGE_ACCESS_KEY = os.getenv("STORAGE_ACCESS_KEY", "stemdeck")
 STORAGE_SECRET_KEY = os.getenv("STORAGE_SECRET_KEY", "stemdeck-secret")
 STORAGE_BUCKET = os.getenv("STORAGE_BUCKET", "stemdeck")
 STORAGE_SECURE = truthy_env("STORAGE_SECURE", False)
+
+REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN", "")
+DEMUCS_BACKEND = os.getenv("DEMUCS_BACKEND", "replicate").strip().lower()
+REPLICATE_DEMUCS_MODEL = os.getenv(
+    "REPLICATE_DEMUCS_MODEL",
+    "cjwbw/demucs",
+)

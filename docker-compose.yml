@@ -28,6 +28,9 @@ services:
       STORAGE_SECURE: "false"
       XDG_CACHE_HOME: /models
       TORCH_HOME: /models/torch
+      REPLICATE_API_TOKEN: ${REPLICATE_API_TOKEN:-}
+      DEMUCS_BACKEND: ${DEMUCS_BACKEND:-replicate}
+      REPLICATE_DEMUCS_MODEL: ${REPLICATE_DEMUCS_MODEL:-cjwbw/demucs}
     volumes:
       - app_data:/data
       - model_cache:/models
@@ -65,6 +68,9 @@ services:
       STORAGE_SECURE: "false"
       XDG_CACHE_HOME: /models
       TORCH_HOME: /models/torch
+      REPLICATE_API_TOKEN: ${REPLICATE_API_TOKEN:-}
+      DEMUCS_BACKEND: ${DEMUCS_BACKEND:-replicate}
+      REPLICATE_DEMUCS_MODEL: ${REPLICATE_DEMUCS_MODEL:-cjwbw/demucs}
     volumes:
       - app_data:/data
       - model_cache:/models

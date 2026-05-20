@@ -10,3 +10,4 @@ soundfile
 sherpa-onnx
 audio-separator[cpu]
 minio
+replicate
