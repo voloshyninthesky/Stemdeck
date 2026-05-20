@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "stemdeck-";
-const CACHE_NAME = "stemdeck-v27";
+const CACHE_NAME = "stemdeck-v28";
 
 
 self.addEventListener("install", () => {

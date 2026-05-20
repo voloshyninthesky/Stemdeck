@@ -108,6 +108,7 @@ let desiredPlaybackTime = 0;
 let authPanelOpen = false;
 let activeFeature = "extractor";
 let userPlaying = false;
+let isPlayingStarted = false;
 
 
 
@@ -273,6 +274,7 @@ const resetPlayer = async () => {
   pendingSeekRatio = null;
   desiredPlaybackTime = 0;
   userPlaying = false;
+  isPlayingStarted = false;
   playBtn.textContent = t.play;
 
   seek.value = "0";
@@ -494,7 +496,8 @@ const loadPlayer = async (job) => {
     if (isInstrumental) isInstrumentalWaiting = true;
     else isVocalsWaiting = true;
 
-    if (userPlaying && (!instrumentalAudio.paused || !vocalsAudio.paused)) {
+    if (userPlaying && isPlayingStarted && (!instrumentalAudio.paused || !vocalsAudio.paused)) {
+      isPlayingStarted = false;
       if (isInstrumental) {
         vocalsAudio.pause();
       } else {
@@ -509,8 +512,15 @@ const loadPlayer = async (job) => {
     else isVocalsWaiting = false;
 
     if (userPlaying && !isInstrumentalWaiting && !isVocalsWaiting) {
-      instrumentalAudio.play().catch(() => {});
-      vocalsAudio.play().catch(() => {});
+      isPlayingStarted = false;
+      Promise.all([
+        instrumentalAudio.play().catch(() => {}),
+        vocalsAudio.play().catch(() => {})
+      ]).then(() => {
+        if (userPlaying) {
+          isPlayingStarted = true;
+        }
+      });
       playBtn.textContent = t.pause;
     }
   };
@@ -523,6 +533,7 @@ const loadPlayer = async (job) => {
 
   const handleEnded = () => {
     userPlaying = false;
+    isPlayingStarted = false;
     instrumentalAudio.pause();
     vocalsAudio.pause();
     instrumentalAudio.currentTime = 0;
@@ -766,16 +777,21 @@ playBtn.addEventListener("click", async () => {
 
   if (instrumentalAudio.paused) {
     userPlaying = true;
+    isPlayingStarted = false;
     applyPendingSeek();
     await seekBoth(desiredPlaybackTime);
     try {
       await Promise.all([instrumentalAudio.play(), vocalsAudio.play()]);
+      if (userPlaying) {
+        isPlayingStarted = true;
+      }
     } catch (e) {
       console.warn("Playback was interrupted or aborted:", e);
     }
     playBtn.textContent = t.pause;
   } else {
     userPlaying = false;
+    isPlayingStarted = false;
     instrumentalAudio.pause();
     vocalsAudio.pause();
     playBtn.textContent = t.play;
@@ -802,13 +818,16 @@ const handleSeek = () => {
 
 seek.addEventListener("pointerdown", () => {
   isSeeking = true;
+  isPlayingStarted = false;
 });
 seek.addEventListener("pointerup", () => {
   isSeeking = false;
+  isPlayingStarted = false;
   handleSeek();
 });
 seek.addEventListener("touchend", () => {
   isSeeking = false;
+  isPlayingStarted = false;
   handleSeek();
 });
 seek.addEventListener("input", handleSeek);
