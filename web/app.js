@@ -768,7 +768,11 @@ playBtn.addEventListener("click", async () => {
     userPlaying = true;
     applyPendingSeek();
     await seekBoth(desiredPlaybackTime);
-    await Promise.all([instrumentalAudio.play(), vocalsAudio.play()]);
+    try {
+      await Promise.all([instrumentalAudio.play(), vocalsAudio.play()]);
+    } catch (e) {
+      console.warn("Playback was interrupted or aborted:", e);
+    }
     playBtn.textContent = t.pause;
   } else {
     userPlaying = false;
