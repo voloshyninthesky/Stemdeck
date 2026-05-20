@@ -10,10 +10,10 @@
   <meta name="apple-mobile-web-app-title" content="Stemdeck" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/assets/style.css?v=25" />
+  <link rel="stylesheet" href="/assets/style.css?v=26" />
   <script>
     (() => {
-      const shellVersion = "stemdeck-v25";
+      const shellVersion = "stemdeck-v26";
       const url = new URL(window.location.href);
       const hadCredentials = url.searchParams.has("username") || url.searchParams.has("password");
 
@@ -265,8 +265,8 @@
         .catch(() => {});
     })();
   </script>
-  <script src="/assets/i18n.js?v=25"></script>
-  <script src="/assets/app.js?v=25"></script>
+  <script src="/assets/i18n.js?v=26"></script>
+  <script src="/assets/app.js?v=26"></script>
   <script>
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/sw.js").catch(() => {});

@@ -474,8 +474,14 @@ const loadPlayer = async (job) => {
   const instrumentalUrl = new URL(job.instrumental_url, window.location.origin).toString();
   const vocalsUrl = new URL(job.vocals_url, window.location.origin).toString();
 
-  instrumentalAudio = new Audio(instrumentalUrl);
-  vocalsAudio = new Audio(vocalsUrl);
+  instrumentalAudio = new Audio();
+  instrumentalAudio.crossOrigin = "use-credentials";
+  instrumentalAudio.src = instrumentalUrl;
+
+  vocalsAudio = new Audio();
+  vocalsAudio.crossOrigin = "use-credentials";
+  vocalsAudio.src = vocalsUrl;
+
   instrumentalAudio.preload = "auto";
   vocalsAudio.preload = "auto";
   instrumentalAudio.addEventListener("loadedmetadata", applyPendingSeek);
