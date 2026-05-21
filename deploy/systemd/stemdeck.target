@@ -1,7 +1,0 @@
-[Unit]
-Description=Stemdeck application services
-Wants=stemdeck-web.service stemdeck-worker.service
-After=network-online.target
-
-[Install]
-WantedBy=multi-user.target

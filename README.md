@@ -169,18 +169,6 @@ docker compose restart worker
 docker compose pull && docker compose up -d --build
 ```
 
-### Native systemd services
-
-If you prefer to run without Docker, systemd service templates are included in `deploy/systemd/`.
-They cover:
-
-- `stemdeck-web.service`: FastAPI app on `127.0.0.1:8000` by default
-- `stemdeck-worker.service`: Celery audio processing worker
-- `stemdeck.target`: starts web and worker together
-- `stemdeck-minio.service`: optional local S3-compatible MinIO storage
-
-See `deploy/systemd/README.md` for install commands, environment files, and operational commands.
-
 ## API
 
 - `POST /api/register` with `username`, `password`
