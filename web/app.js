@@ -102,6 +102,7 @@ let syncTimer = null;
 let pendingSeekTime = null;
 let pendingSeekRatio = null;
 let isSeeking = false;
+let wasPlayingBeforeSeek = false;
 let lastManualSeekAt = 0;
 let audioGraphUnavailable = true;
 let desiredPlaybackTime = 0;
@@ -346,7 +347,7 @@ const setAudioTime = (audio, time) => {
 
 const waitForSeek = (audio, targetTime) =>
   new Promise((resolve) => {
-    if (Math.abs((audio.currentTime || 0) - targetTime) < 0.2) {
+    if (!audio.seeking) {
       resolve();
       return;
     }
@@ -361,7 +362,7 @@ const waitForSeek = (audio, targetTime) =>
       audio.removeEventListener("timeupdate", done);
       audio.removeEventListener("canplay", done);
     };
-    const timer = setTimeout(done, 650);
+    const timer = setTimeout(done, 3000);
     audio.addEventListener("seeked", done, { once: true });
     audio.addEventListener("timeupdate", done, { once: true });
     audio.addEventListener("canplay", done, { once: true });
@@ -817,7 +818,13 @@ const handleSeek = () => {
 
   const requestedTime = duration > 0 ? (Number(seek.value) / 1000) * duration : 0;
   desiredPlaybackTime = requestedTime;
-  applySeekTime(requestedTime);
+
+  if (isSeeking) {
+    // Only update UI during active drag
+    timeLabel.textContent = `${formatTime(requestedTime)} / ${formatTime(duration)}`;
+  } else {
+    applySeekTime(requestedTime);
+  }
 };
 
 // Hard-sync both tracks: pause, seek to same time, play together.
@@ -826,11 +833,13 @@ const hardSync = async (time) => {
   if (!instrumentalAudio || !vocalsAudio) {
     return;
   }
-  const wasPlaying = userPlaying && !instrumentalAudio.paused;
+  const shouldPlay = wasPlayingBeforeSeek;
+
   instrumentalAudio.pause();
   vocalsAudio.pause();
   await seekBoth(time);
-  if (wasPlaying && userPlaying) {
+
+  if (shouldPlay && userPlaying) {
     try {
       await Promise.all([
         instrumentalAudio.play(),
@@ -843,20 +852,38 @@ const hardSync = async (time) => {
 };
 
 seek.addEventListener("pointerdown", () => {
+  if (isSeeking) return;
   isSeeking = true;
   isPlayingStarted = false;
+  if (instrumentalAudio && vocalsAudio) {
+    wasPlayingBeforeSeek = userPlaying && !instrumentalAudio.paused;
+    instrumentalAudio.pause();
+    vocalsAudio.pause();
+  }
 });
 seek.addEventListener("pointerup", () => {
+  if (!isSeeking) return;
   isSeeking = false;
   isPlayingStarted = false;
-  handleSeek();
-  hardSync(desiredPlaybackTime);
+
+  const duration = currentDuration();
+  const requestedTime = duration > 0 ? (Number(seek.value) / 1000) * duration : 0;
+  desiredPlaybackTime = requestedTime;
+  timeLabel.textContent = `${formatTime(requestedTime)} / ${formatTime(duration)}`;
+
+  hardSync(requestedTime);
 });
 seek.addEventListener("touchend", () => {
+  if (!isSeeking) return;
   isSeeking = false;
   isPlayingStarted = false;
-  handleSeek();
-  hardSync(desiredPlaybackTime);
+
+  const duration = currentDuration();
+  const requestedTime = duration > 0 ? (Number(seek.value) / 1000) * duration : 0;
+  desiredPlaybackTime = requestedTime;
+  timeLabel.textContent = `${formatTime(requestedTime)} / ${formatTime(duration)}`;
+
+  hardSync(requestedTime);
 });
 seek.addEventListener("input", handleSeek);
 seek.addEventListener("change", handleSeek);
