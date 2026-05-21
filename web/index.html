@@ -48,8 +48,7 @@
   <main class="container">
     <header class="topbar">
       <div>
-        <p class="eyebrow">Stemdeck</p>
-        <h1 data-i18n="heroTitle">Extract vocal or instrumental</h1>
+        <h1>Stemdeck</h1>
       </div>
       <div class="topbar-actions">
         <div class="language-switcher" role="group" aria-label="🌐">
@@ -85,25 +84,32 @@
     </section>
 
     <section id="appSection" class="hidden">
-      <section class="feature-shell">
-        <aside class="feature-rail">
-          <p class="eyebrow" data-i18n="toolsLabel">Tools</p>
-          <div class="feature-nav" role="tablist" aria-label="Feature selector">
-            <button type="button" class="feature-chip active" data-feature="extractor" data-i18n="featureExtractor">Extract</button>
+      <section data-feature-panel="extractor">
+        <section class="upload-panel">
+          <div>
+            <p class="eyebrow" data-i18n="newSplit">New split</p>
+            <h2 id="uploadPanelTitle" data-i18n="dropFile">Upload audio or video</h2>
           </div>
-        </aside>
+          
+          <div class="split-inputs">
+            <div class="input-block">
+              <label for="audioFile" class="label" data-i18n="tabUpload">File Upload</label>
+              <input id="audioFile" type="file" accept="audio/*,video/*" />
+            </div>
+            
+            <div class="or-divider">
+              <span data-i18n="orDivider">— OR —</span>
+            </div>
+            
+            <div class="input-block">
+              <label for="youtubeUrl" class="label" data-i18n="tabYoutube">YouTube Link</label>
+              <input id="youtubeUrl" type="url" placeholder="https://www.youtube.com/watch?v=..." />
+            </div>
+          </div>
 
-        <div class="feature-content">
-          <section data-feature-panel="extractor">
-            <section class="upload-panel">
-              <div>
-                <p class="eyebrow" data-i18n="newSplit">New split</p>
-                <h2 data-i18n="dropFile">Drop in an audio or video file</h2>
-              </div>
-              <div class="upload-row">
-                <input id="audioFile" type="file" accept="audio/*,video/*" />
-                <button id="processBtn" type="button" data-i18n="process">Process</button>
-              </div>
+          <div class="upload-row">
+            <button id="processBtn" type="button" data-i18n="process">Process</button>
+          </div>
               <label class="mode-toggle" for="fastMode">
                 <input id="fastMode" type="checkbox" />
                 <span>
@@ -155,13 +161,7 @@
               </section>
             </section>
           </section>
-
-
-
-
-        </div>
-      </section>
-    </section>
+        </section>
   </main>
 
   <script>

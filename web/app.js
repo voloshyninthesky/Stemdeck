@@ -8,10 +8,10 @@ const usernameLabel = document.getElementById("usernameLabel");
 const authToggleBtn = document.getElementById("authToggleBtn");
 const logoutBtn = document.getElementById("logoutBtn");
 const languageButtons = document.querySelectorAll("[data-lang]");
-const featureButtons = document.querySelectorAll("[data-feature]");
-const featurePanels = document.querySelectorAll("[data-feature-panel]");
 const appSection = document.getElementById("appSection");
 const audioFile = document.getElementById("audioFile");
+const youtubeUrl = document.getElementById("youtubeUrl");
+const uploadPanelTitle = document.getElementById("uploadPanelTitle");
 const fastMode = document.getElementById("fastMode");
 const processBtn = document.getElementById("processBtn");
 const refreshBtn = document.getElementById("refreshBtn");
@@ -42,11 +42,14 @@ const fallbackTranslations = {
     toolsLabel: "Tools",
     featureExtractor: "Extract",
     newSplit: "New",
-    dropFile: "Drop in an audio or video file",
+    dropFile: "Upload audio or video",
+    orDivider: "— OR —",
     process: "Process",
     fastModeTitle: "Fast mode",
     fastModeHelp: "Recommended for quick results. Turn off for higher quality.",
-    chooseFile: "Choose a file to start a job.",
+    chooseFile: "Choose a file or YouTube link.",
+    youtubePlaceholder: "https://www.youtube.com/watch?v=...",
+    youtubeError: "Please enter a valid YouTube URL first.",
     library: "Library",
     pastUploads: "Past uploads",
     refresh: "Refresh",
@@ -64,8 +67,8 @@ const fallbackTranslations = {
     delete: "Delete",
     loginProgress: "Logging in...",
     createAccountProgress: "Creating account...",
-    readyToStart: "Choose a file.",
-    chooseFileFirst: "Choose a file first.",
+    readyToStart: "Choose a file or YouTube link.",
+    chooseFileFirst: "Choose a file or enter a YouTube link first.",
     queued: (position) =>
       `${position ? `Queue: ${position}. ` : ""}Waiting. You can close this page.`,
     processing: "Processing. You can close this page.",
@@ -103,7 +106,6 @@ let lastManualSeekAt = 0;
 let audioGraphUnavailable = false;
 let desiredPlaybackTime = 0;
 let authPanelOpen = false;
-let activeFeature = "extractor";
 let userPlaying = false;
 let isPlayingStarted = false;
 
@@ -168,29 +170,21 @@ const applyTranslations = () => {
   });
 };
 
-const setFeature = (feature, persist = true) => {
-  const valid = [...featurePanels].some((panel) => panel.dataset.featurePanel === feature);
-  if (!valid) {
-    return;
-  }
-  activeFeature = feature;
-  featureButtons.forEach((button) => {
-    const isActive = button.dataset.feature === feature;
-    button.classList.toggle("active", isActive);
-    button.setAttribute("aria-pressed", String(isActive));
-  });
-  featurePanels.forEach((panel) => {
-    panel.classList.toggle("hidden", panel.dataset.featurePanel !== feature);
-  });
-  if (persist) {
-    localStorage.setItem("stemdeck-feature", feature);
-  }
 
-};
 
 
 const refreshLocalizedUi = () => {
   applyTranslations();
+  if (youtubeUrl) {
+    youtubeUrl.placeholder = t.youtubePlaceholder;
+  }
+  if (audioFile && audioFile.files?.[0]) {
+    setStatus(`${t.loaded}: ${audioFile.files[0].name}`);
+  } else if (youtubeUrl && youtubeUrl.value?.trim() !== "") {
+    setStatus(`${t.loaded}: YouTube Link`);
+  } else {
+    setStatus(t.chooseFile);
+  }
   refreshVolumes();
   renderJobs();
   if (currentUser) {
@@ -685,12 +679,6 @@ const handleAuthSubmit = (event, mode = "login") => {
 };
 
 const init = async () => {
-  const savedFeature = localStorage.getItem("stemdeck-feature");
-  if (savedFeature) {
-    setFeature(savedFeature, false);
-  } else {
-    setFeature("extractor", false);
-  }
 
   try {
     const payload = await api("/api/me");
@@ -732,15 +720,24 @@ logoutBtn.addEventListener("click", async () => {
 refreshBtn.addEventListener("click", refreshJobs);
 
 processBtn.addEventListener("click", async () => {
+  const formData = new FormData();
+  formData.append("fast_mode", fastMode.checked ? "true" : "false");
+
   const file = audioFile.files?.[0];
-  if (!file) {
+  const url = youtubeUrl.value?.trim();
+
+  if (file) {
+    formData.append("file", file);
+  } else if (url) {
+    if (!url.includes("youtube.com") && !url.includes("youtu.be")) {
+      setStatus(t.youtubeError);
+      return;
+    }
+    formData.append("youtube_url", url);
+  } else {
     setStatus(t.chooseFileFirst);
     return;
   }
-
-  const formData = new FormData();
-  formData.append("file", file);
-  formData.append("fast_mode", fastMode.checked ? "true" : "false");
 
   setStatus(t.uploading);
   processBtn.disabled = true;
@@ -754,6 +751,7 @@ processBtn.addEventListener("click", async () => {
     renderJobs();
     setStatus(t.jobQueued);
     audioFile.value = "";
+    youtubeUrl.value = "";
     await refreshJobs();
   } catch (error) {
     setStatus(t.error(error.message));
@@ -761,6 +759,33 @@ processBtn.addEventListener("click", async () => {
     processBtn.disabled = false;
   }
 });
+
+if (audioFile) {
+  audioFile.addEventListener("change", () => {
+    if (audioFile.files?.[0]) {
+      if (youtubeUrl) {
+        youtubeUrl.value = "";
+      }
+      setStatus(`${t.loaded}: ${audioFile.files[0].name}`);
+    } else {
+      setStatus(t.chooseFile);
+    }
+  });
+}
+
+if (youtubeUrl) {
+  youtubeUrl.addEventListener("input", () => {
+    const val = youtubeUrl.value.trim();
+    if (val) {
+      if (audioFile) {
+        audioFile.value = "";
+      }
+      setStatus(`${t.loaded}: YouTube Link`);
+    } else {
+      setStatus(t.chooseFile);
+    }
+  });
+}
 
 playBtn.addEventListener("click", async () => {
   if (!instrumentalAudio || !vocalsAudio) {
@@ -847,9 +872,7 @@ languageButtons.forEach((button) => {
   button.addEventListener("click", () => setLanguage(button.dataset.lang));
 });
 
-featureButtons.forEach((button) => {
-  button.addEventListener("click", () => setFeature(button.dataset.feature));
-});
+
 
 scrubCredentialsFromUrl();
 applyTranslations();

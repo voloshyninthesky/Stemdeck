@@ -20,6 +20,34 @@ celery_app.conf.update(
 )
 
 
+def download_youtube_audio(url: str, job_dir: Path) -> tuple[Path, str]:
+    import yt_dlp
+
+    input_dir = job_dir / "input"
+    input_dir.mkdir(parents=True, exist_ok=True)
+
+    ydl_opts = {
+        "format": "bestaudio/best",
+        "outtmpl": str(input_dir / "%(id)s.%(ext)s"),
+        "quiet": True,
+        "noprogress": True,
+        "noplaylist": True,
+        "no_warnings": True,
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        filepath = Path(ydl.prepare_filename(info))
+        if filepath.exists():
+            return filepath, info.get("title", "YouTube Video")
+
+        for p in input_dir.glob("*"):
+            if p.is_file() and p.name != ".DS_Store":
+                return p, info.get("title", "YouTube Video")
+
+        raise RuntimeError("Failed to download YouTube audio file")
+
+
 @celery_app.task(name="app.tasks.process_job")
 def process_job(job_id: str) -> None:
     db.init_db()
@@ -37,10 +65,31 @@ def process_job(job_id: str) -> None:
 
     try:
         mode = job.get("separation_mode") or "fast"
+        input_path_str = job["input_path"]
+        job_dir = Path(job["job_dir"])
+
+        if input_path_str.startswith("http://") or input_path_str.startswith("https://"):
+            report(2, "Downloading audio from YouTube")
+            local_input_path, title = download_youtube_audio(input_path_str, job_dir)
+
+            input_key = storage.put_file(
+                local_input_path, f"{job_id}/input/{local_input_path.name}"
+            )
+
+            db.update_job(
+                job_id,
+                input_key=input_key,
+                input_path=str(local_input_path),
+                original_filename=title,
+            )
+            input_path = local_input_path
+        else:
+            input_path = Path(input_path_str)
+
         report(5, "Your file is processing. You can close this page.")
         result = separate_audio(
-            input_path=Path(job["input_path"]),
-            job_dir=Path(job["job_dir"]),
+            input_path=input_path,
+            job_dir=job_dir,
             report_progress=report,
             separation_mode=mode,
         )

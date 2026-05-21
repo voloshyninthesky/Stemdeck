@@ -48,8 +48,15 @@ test('Stemdeck auth, language, process, and upload controls work', async () => {
   const pageErrors = [];
   const failedRequests = [];
 
-  page.on('pageerror', (error) => pageErrors.push(error.message));
-  page.on('requestfailed', (request) => failedRequests.push(`${request.method()} ${request.url()}`));
+  page.on('console', (msg) => console.log('PAGE LOG:', msg.text()));
+  page.on('pageerror', (error) => {
+    console.error('PAGE ERROR:', error.stack || error.message);
+    pageErrors.push(error.message);
+  });
+  page.on('requestfailed', (request) => {
+    console.warn('REQUEST FAILED:', request.method(), request.url());
+    failedRequests.push(`${request.method()} ${request.url()}`);
+  });
 
   try {
     await page.goto(`${BASE_URL}/?username=leak&password=secret`, { waitUntil: 'networkidle' });
@@ -60,7 +67,7 @@ test('Stemdeck auth, language, process, and upload controls work', async () => {
     await page.locator('#logoutBtn').waitFor({ state: 'hidden', timeout: 5000 });
     await page.locator('#authToggleBtn').waitFor({ state: 'visible', timeout: 5000 });
     await page.getByRole('button', { name: 'Process' }).click();
-    await assertVisibleText(page, 'Choose a file first.');
+    await assertVisibleText(page, 'Choose a file or enter a YouTube link first.');
 
     await page.locator('#authToggleBtn').click();
     await page.locator('#authSection').waitFor({ state: 'visible', timeout: 5000 });
@@ -95,15 +102,15 @@ test('Stemdeck auth, language, process, and upload controls work', async () => {
     await assertVisibleText(page, username);
 
     await page.getByRole('button', { name: 'Українська' }).click();
-    await assertVisibleText(page, 'Витягти вокал або інструментал');
+    await assertVisibleText(page, 'Аудіо або відео');
     await assertVisibleText(page, 'Запустити');
 
     await page.getByRole('button', { name: 'English' }).click();
-    await assertVisibleText(page, 'Extract vocal or instrumental');
+    await assertVisibleText(page, 'Upload audio or video');
     await assertVisibleText(page, 'Process');
 
     await page.getByRole('button', { name: 'Process' }).click();
-    await assertVisibleText(page, 'Choose a file first.');
+    await assertVisibleText(page, 'Choose a file or enter a YouTube link first.');
 
     const wav = await makeTestWav();
     try {

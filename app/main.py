@@ -331,13 +331,55 @@ ALLOWED_EXTENSIONS = {
 
 @app.post("/api/jobs")
 async def create_job(
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
+    youtube_url: str | None = Form(None),
     fast_mode: bool = Form(True),
     user: dict[str, Any] = Depends(current_user),
 ) -> dict[str, Any]:
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="Missing file name")
+    has_file = file is not None and bool(file.filename)
+    has_url = youtube_url is not None and bool(youtube_url.strip())
 
+    if not has_file and not has_url:
+        raise HTTPException(
+            status_code=400,
+            detail="Either a file upload or a YouTube URL must be provided.",
+        )
+    if has_file and has_url:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot provide both a file upload and a YouTube URL simultaneously.",
+        )
+
+    separation_mode = "fast" if fast_mode else "quality"
+
+    if has_url:
+        url_val = youtube_url.strip()
+        if not ("youtube.com" in url_val or "youtu.be" in url_val):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid YouTube URL. Only youtube.com and youtu.be links are supported.",
+            )
+
+        job_id = str(uuid.uuid4())
+        job_dir = config.JOBS_DIR / job_id
+        input_dir = job_dir / "input"
+        input_dir.mkdir(parents=True, exist_ok=True)
+
+        original_filename = "YouTube Video"
+        job = db.create_job(
+            job_id=job_id,
+            user_id=user["id"],
+            original_filename=original_filename,
+            input_path=url_val,
+            job_dir=job_dir,
+            input_key="",
+            separation_mode=separation_mode,
+        )
+        enqueue_job(job_id)
+        refreshed = db.get_job(job_id, user["id"]) or job
+        return {"job": serialize_job(refreshed)}
+
+    # Handle file upload
     original_filename = Path(file.filename).name
     file_ext = Path(original_filename).suffix.lower()
     if file_ext not in ALLOWED_EXTENSIONS:
@@ -372,7 +414,6 @@ async def create_job(
         raise exc
 
     input_key = storage.put_file(raw_input, f"{job_id}/input/{original_filename}")
-    separation_mode = "fast" if fast_mode else "quality"
     job = db.create_job(
         job_id=job_id,
         user_id=user["id"],

@@ -242,7 +242,7 @@ def create_job(
     job_id: str,
     user_id: int,
     original_filename: str,
-    input_path: Path,
+    input_path: Path | str,
     job_dir: Path,
     input_key: str = "",
     separation_mode: str = "fast",
@@ -283,6 +283,8 @@ def update_job(job_id: str, **fields: Any) -> None:
         return
 
     allowed_fields = {
+        "input_path",
+        "original_filename",
         "input_key",
         "instrumental_path",
         "instrumental_key",
