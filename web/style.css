@@ -288,9 +288,20 @@ input[type="range"]::-webkit-slider-thumb {
   height: 24px;
   background: var(--teal);
   border: 2px solid var(--ink);
-  box-shadow: 2px 2px 0 var(--ink);
+  box-shadow: 3px 3px 0 var(--ink);
   cursor: pointer;
   margin-top: -8px; /* Center thumb on track */
+  transition: transform 100ms ease, box-shadow 100ms ease, background-color 100ms ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+input[type="range"]::-webkit-slider-thumb:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 var(--ink);
 }
 
 /* Firefox */
@@ -304,8 +315,48 @@ input[type="range"]::-moz-range-thumb {
   height: 20px;
   background: var(--teal);
   border: 2px solid var(--ink);
-  box-shadow: 2px 2px 0 var(--ink);
+  box-shadow: 3px 3px 0 var(--ink);
   cursor: pointer;
+  transition: transform 100ms ease, box-shadow 100ms ease, background-color 100ms ease;
+}
+
+input[type="range"]::-moz-range-thumb:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+input[type="range"]::-moz-range-thumb:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 var(--ink);
+}
+
+#seek::-webkit-slider-thumb {
+  background: var(--lime);
+}
+
+#seek::-moz-range-thumb {
+  background: var(--lime);
+}
+
+#seek {
+  background: linear-gradient(
+    to right,
+    var(--lime) 0%,
+    var(--lime) var(--seek-percent, 0%),
+    var(--field) var(--seek-percent, 0%),
+    var(--field) 100%
+  );
+}
+
+#instrumentalVolume,
+#vocalsVolume {
+  background: linear-gradient(
+    to right,
+    var(--teal) 0%,
+    var(--teal) var(--volume-percent, 100%),
+    var(--field) var(--volume-percent, 100%),
+    var(--field) 100%
+  );
 }
 
 button,

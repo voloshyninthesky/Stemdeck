@@ -290,6 +290,7 @@ const resetPlayer = () => {
   playBtn.disabled = false;
 
   seek.value = "0";
+  seek.style.setProperty('--seek-percent', '0%');
   timeLabel.textContent = "0:00 / 0:00";
 };
 
@@ -311,6 +312,11 @@ const refreshVolumes = () => {
   instrumentalMute.textContent = instrumentalMuted ? t.unmute : t.mute;
   vocalsMute.textContent = vocalsMuted ? t.unmute : t.mute;
 
+  const instVal = instrumentalMuted ? 0 : Number(instrumentalVolume.value);
+  const vocVal = vocalsMuted ? 0 : Number(vocalsVolume.value);
+  instrumentalVolume.style.setProperty('--volume-percent', `${instVal}%`);
+  vocalsVolume.style.setProperty('--volume-percent', `${vocVal}%`);
+
   if (!audioContext) return;
 
   if (!instrumentalGain) {
@@ -322,8 +328,8 @@ const refreshVolumes = () => {
     vocalsGain.connect(audioContext.destination);
   }
 
-  const instVol = instrumentalMuted ? 0 : Number(instrumentalVolume.value) / 100;
-  const vocVol = vocalsMuted ? 0 : Number(vocalsVolume.value) / 100;
+  const instVol = instVal / 100;
+  const vocVol = vocVal / 100;
 
   instrumentalGain.gain.setValueAtTime(instVol, audioContext.currentTime);
   vocalsGain.gain.setValueAtTime(vocVol, audioContext.currentTime);
@@ -400,6 +406,7 @@ const handleEnded = () => {
   desiredPlaybackTime = 0;
   playBtn.textContent = t.play;
   seek.value = "0";
+  seek.style.setProperty('--seek-percent', '0%');
   timeLabel.textContent = `0:00 / ${formatTime(currentDuration())}`;
 };
 
@@ -416,11 +423,13 @@ const applySeekTime = (time) => {
   const nextTime = Math.max(0, Math.min(duration, time));
   desiredPlaybackTime = nextTime;
 
+  const percent = (nextTime / duration) * 100;
+  seek.value = String(Math.round((nextTime / duration) * 1000));
+  seek.style.setProperty('--seek-percent', `${percent}%`);
+  timeLabel.textContent = `${formatTime(nextTime)} / ${formatTime(duration)}`;
+
   if (userPlaying) {
     startSources(nextTime);
-  } else {
-    seek.value = String(Math.round((nextTime / duration) * 1000));
-    timeLabel.textContent = `${formatTime(nextTime)} / ${formatTime(duration)}`;
   }
   return true;
 };
@@ -456,6 +465,7 @@ const setupTimeSync = () => {
 
     if (!isSeeking) {
       seek.value = String(Math.round((t / duration) * 1000));
+      seek.style.setProperty('--seek-percent', `${(t / duration) * 100}%`);
       timeLabel.textContent = `${formatTime(t)} / ${formatTime(duration)}`;
     }
   }, 200);
@@ -474,6 +484,9 @@ const loadPlayer = async (job) => {
   downloadInstrumental.href = new URL(job.instrumental_url, window.location.origin).toString();
   downloadVocals.href = new URL(job.vocals_url, window.location.origin).toString();
   playerSection.classList.remove("hidden");
+  if (window.innerWidth < 760) {
+    playerSection.scrollIntoView({ behavior: "smooth" });
+  }
 
   setStatus("Loading stems into memory... please wait...");
   playBtn.disabled = true;
@@ -788,6 +801,7 @@ const handleSeek = () => {
   desiredPlaybackTime = requestedTime;
 
   if (isSeeking) {
+    seek.style.setProperty('--seek-percent', `${(Number(seek.value) / 1000) * 100}%`);
     timeLabel.textContent = `${formatTime(requestedTime)} / ${formatTime(duration)}`;
   } else {
     applySeekTime(requestedTime);
@@ -818,6 +832,7 @@ const onSeekEnd = async () => {
   const duration = currentDuration();
   const requestedTime = duration > 0 ? (Number(seek.value) / 1000) * duration : 0;
   desiredPlaybackTime = requestedTime;
+  seek.style.setProperty('--seek-percent', `${(Number(seek.value) / 1000) * 100}%`);
   timeLabel.textContent = `${formatTime(requestedTime)} / ${formatTime(duration)}`;
 
   if (wasPlayingBeforeSeek) {
@@ -861,6 +876,7 @@ languageButtons.forEach((button) => {
 
 scrubCredentialsFromUrl();
 applyTranslations();
+refreshVolumes();
 init();
 
 ;
