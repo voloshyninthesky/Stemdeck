@@ -434,7 +434,7 @@ const setupTimeSync = () => {
 
     const t = instrumentalAudio.currentTime || 0;
     const duration = currentDuration();
-    const settlingAfterSeek = isSeeking || Date.now() - lastManualSeekAt < 1000;
+    const settlingAfterSeek = isSeeking || Date.now() - lastManualSeekAt < 3000;
     if (!settlingAfterSeek) {
       desiredPlaybackTime = t;
     }
@@ -443,7 +443,23 @@ const setupTimeSync = () => {
     }
 
     timeLabel.textContent = `${formatTime(t)} / ${formatTime(duration)}`;
-  }, 100);
+
+    // Safe drift correction: only when both tracks are actively playing
+    // with data buffered, and not within cooldown of a recent seek/correction.
+    if (
+      !settlingAfterSeek &&
+      !instrumentalAudio.paused && !vocalsAudio.paused &&
+      !instrumentalAudio.seeking && !vocalsAudio.seeking &&
+      instrumentalAudio.readyState >= 3 && vocalsAudio.readyState >= 3
+    ) {
+      const drift = Math.abs((vocalsAudio.currentTime || 0) - t);
+      if (drift > 0.25) {
+        vocalsAudio.currentTime = t;
+        // Set cooldown so we don't re-correct for 3 seconds
+        lastManualSeekAt = Date.now();
+      }
+    }
+  }, 200);
 };
 
 const loadPlayer = async (job) => {
@@ -804,6 +820,28 @@ const handleSeek = () => {
   applySeekTime(requestedTime);
 };
 
+// Hard-sync both tracks: pause, seek to same time, play together.
+// Called when user finishes a seek drag to eliminate drift.
+const hardSync = async (time) => {
+  if (!instrumentalAudio || !vocalsAudio) {
+    return;
+  }
+  const wasPlaying = userPlaying && !instrumentalAudio.paused;
+  instrumentalAudio.pause();
+  vocalsAudio.pause();
+  await seekBoth(time);
+  if (wasPlaying && userPlaying) {
+    try {
+      await Promise.all([
+        instrumentalAudio.play(),
+        vocalsAudio.play()
+      ]);
+    } catch (e) {
+      console.warn("Playback interrupted during hard sync:", e);
+    }
+  }
+};
+
 seek.addEventListener("pointerdown", () => {
   isSeeking = true;
   isPlayingStarted = false;
@@ -812,11 +850,13 @@ seek.addEventListener("pointerup", () => {
   isSeeking = false;
   isPlayingStarted = false;
   handleSeek();
+  hardSync(desiredPlaybackTime);
 });
 seek.addEventListener("touchend", () => {
   isSeeking = false;
   isPlayingStarted = false;
   handleSeek();
+  hardSync(desiredPlaybackTime);
 });
 seek.addEventListener("input", handleSeek);
 seek.addEventListener("change", handleSeek);
