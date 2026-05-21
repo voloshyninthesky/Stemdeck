@@ -265,11 +265,47 @@ input[type="file"] {
 }
 
 input[type="range"] {
-  height: 32px;
-  padding: 0;
-  border: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 14px;
+  background: var(--field);
+  border: 2px solid var(--ink);
+  outline: none;
+  cursor: pointer;
+}
+
+/* WebKit (Chrome, Safari, Edge, Opera) */
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 10px;
   background: transparent;
-  accent-color: var(--teal);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  background: var(--teal);
+  border: 2px solid var(--ink);
+  box-shadow: 2px 2px 0 var(--ink);
+  cursor: pointer;
+  margin-top: -8px; /* Center thumb on track */
+}
+
+/* Firefox */
+input[type="range"]::-moz-range-track {
+  height: 10px;
+  background: transparent;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  background: var(--teal);
+  border: 2px solid var(--ink);
+  box-shadow: 2px 2px 0 var(--ink);
+  cursor: pointer;
 }
 
 button,

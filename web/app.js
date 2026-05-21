@@ -91,28 +91,52 @@ let jobs = [];
 let currentUser = null;
 let activeJobId = null;
 let pollTimer = null;
-let instrumentalAudio = null;
-let vocalsAudio = null;
 let audioContext = null;
+let instrumentalBuffer = null;
+let vocalsBuffer = null;
+let instrumentalSource = null;
+let vocalsSource = null;
 let instrumentalGain = null;
 let vocalsGain = null;
 let instrumentalMuted = false;
 let vocalsMuted = false;
 let syncTimer = null;
-let pendingSeekTime = null;
-let pendingSeekRatio = null;
+let desiredPlaybackTime = 0;
+let playbackStartTime = 0;
 let isSeeking = false;
 let wasPlayingBeforeSeek = false;
-let lastManualSeekAt = 0;
-let audioGraphUnavailable = true;
-let desiredPlaybackTime = 0;
 let authPanelOpen = false;
 let userPlaying = false;
-let isPlayingStarted = false;
 
+const safeDecodeAudioData = (context, arrayBuffer) => {
+  return new Promise((resolve, reject) => {
+    try {
+      const promise = context.decodeAudioData(arrayBuffer, resolve, reject);
+      if (promise && typeof promise.then === 'function') {
+        promise.then(resolve).catch(reject);
+      }
+    } catch (e) {
+      try {
+        context.decodeAudioData(arrayBuffer, resolve, reject);
+      } catch (err) {
+        reject(err);
+      }
+    }
+  });
+};
 
-
-
+const ensureAudioContextActive = async () => {
+  if (!audioContext) return false;
+  if (audioContext.state === "suspended") {
+    try {
+      await audioContext.resume();
+    } catch (e) {
+      console.error("Failed to resume AudioContext:", e);
+      return false;
+    }
+  }
+  return true;
+};
 
 const formatTime = (sec) => {
   const total = Math.max(0, Math.floor(sec || 0));
@@ -191,8 +215,8 @@ const refreshLocalizedUi = () => {
   if (currentUser) {
     usernameLabel.textContent = currentUser.username;
   }
-  if (instrumentalAudio) {
-    playBtn.textContent = instrumentalAudio.paused ? t.play : t.pause;
+  if (instrumentalBuffer && vocalsBuffer) {
+    playBtn.textContent = userPlaying ? t.pause : t.play;
   }
   if (!activeJobId && playerSection.classList.contains("hidden")) {
     playerTitle.textContent = t.player;
@@ -247,180 +271,166 @@ const showAuth = () => {
   playerSection.classList.add("hidden");
 };
 
-const resetPlayer = async () => {
-  if (instrumentalAudio) {
-    instrumentalAudio.pause();
-  }
-  if (vocalsAudio) {
-    vocalsAudio.pause();
-  }
+const resetPlayer = () => {
+  userPlaying = false;
+  stopSources();
+
   if (syncTimer) {
     clearInterval(syncTimer);
+    syncTimer = null;
   }
-  instrumentalAudio = null;
-  vocalsAudio = null;
+
+  instrumentalBuffer = null;
+  vocalsBuffer = null;
   instrumentalGain = null;
   vocalsGain = null;
-  audioGraphUnavailable = true;
-  pendingSeekTime = null;
-  pendingSeekRatio = null;
   desiredPlaybackTime = 0;
-  userPlaying = false;
-  isPlayingStarted = false;
+  playbackStartTime = 0;
   playBtn.textContent = t.play;
+  playBtn.disabled = false;
 
   seek.value = "0";
   timeLabel.textContent = "0:00 / 0:00";
 };
 
-const stopPlayerForDeletedJob = async (jobId) => {
+const stopPlayerForDeletedJob = (jobId) => {
   if (activeJobId !== jobId) {
     return;
   }
 
-  await resetPlayer();
+  resetPlayer();
   activeJobId = null;
   playerSection.classList.add("hidden");
 };
 
 const ensureAudioGraph = () => {
-  if (!instrumentalAudio || !vocalsAudio) {
-    return;
-  }
-
-  if (instrumentalGain && vocalsGain) {
-    return;
-  }
-
-  if (audioGraphUnavailable) {
-    return;
-  }
-
-  if (!audioContext) {
-    audioContext = new window.AudioContext();
-  }
-
-  try {
-    const iSource = audioContext.createMediaElementSource(instrumentalAudio);
-    const vSource = audioContext.createMediaElementSource(vocalsAudio);
-    instrumentalGain = audioContext.createGain();
-    vocalsGain = audioContext.createGain();
-
-    iSource.connect(instrumentalGain).connect(audioContext.destination);
-    vSource.connect(vocalsGain).connect(audioContext.destination);
-  } catch {
-    audioGraphUnavailable = true;
-    instrumentalGain = null;
-    vocalsGain = null;
-  }
+  // Managed dynamically on buffer source instantiation
 };
 
 const refreshVolumes = () => {
   instrumentalMute.textContent = instrumentalMuted ? t.unmute : t.mute;
   vocalsMute.textContent = vocalsMuted ? t.unmute : t.mute;
 
-  if (!instrumentalGain || !vocalsGain) {
-    if (instrumentalAudio) {
-      instrumentalAudio.volume = instrumentalMuted ? 0 : Number(instrumentalVolume.value) / 100;
-    }
-    if (vocalsAudio) {
-      vocalsAudio.volume = vocalsMuted ? 0 : Number(vocalsVolume.value) / 100;
-    }
-    return;
+  if (!audioContext) return;
+
+  if (!instrumentalGain) {
+    instrumentalGain = audioContext.createGain();
+    instrumentalGain.connect(audioContext.destination);
+  }
+  if (!vocalsGain) {
+    vocalsGain = audioContext.createGain();
+    vocalsGain.connect(audioContext.destination);
   }
 
-  instrumentalGain.gain.value = instrumentalMuted
-    ? 0
-    : Number(instrumentalVolume.value) / 100;
-  vocalsGain.gain.value = vocalsMuted ? 0 : Number(vocalsVolume.value) / 100;
+  const instVol = instrumentalMuted ? 0 : Number(instrumentalVolume.value) / 100;
+  const vocVol = vocalsMuted ? 0 : Number(vocalsVolume.value) / 100;
 
+  instrumentalGain.gain.setValueAtTime(instVol, audioContext.currentTime);
+  vocalsGain.gain.setValueAtTime(vocVol, audioContext.currentTime);
 };
 
 const currentDuration = () => {
-  const duration = instrumentalAudio?.duration || vocalsAudio?.duration || 0;
-  return Number.isFinite(duration) ? duration : 0;
+  return instrumentalBuffer ? instrumentalBuffer.duration : 0;
 };
 
-const setAudioTime = (audio, time) => {
-  audio.currentTime = time;
-};
+const startSources = (offset) => {
+  if (!instrumentalBuffer || !vocalsBuffer || !audioContext) {
+    return;
+  }
 
-const waitForSeek = (audio, targetTime) =>
-  new Promise((resolve) => {
-    if (!audio.seeking) {
-      resolve();
-      return;
+  stopSources();
+
+  instrumentalSource = audioContext.createBufferSource();
+  vocalsSource = audioContext.createBufferSource();
+
+  instrumentalSource.buffer = instrumentalBuffer;
+  vocalsSource.buffer = vocalsBuffer;
+
+  if (!instrumentalGain) {
+    instrumentalGain = audioContext.createGain();
+    instrumentalGain.connect(audioContext.destination);
+  }
+  if (!vocalsGain) {
+    vocalsGain = audioContext.createGain();
+    vocalsGain.connect(audioContext.destination);
+  }
+
+  instrumentalSource.connect(instrumentalGain);
+  vocalsSource.connect(vocalsGain);
+
+  const duration = currentDuration();
+  const safeOffset = Math.max(0, Math.min(duration, offset));
+
+  // Schedule playback exactly 50ms in the future to allow perfect hardware synchronization on mobile
+  const playTime = audioContext.currentTime + 0.05;
+  instrumentalSource.start(playTime, safeOffset);
+  vocalsSource.start(playTime, safeOffset);
+
+  playbackStartTime = playTime - safeOffset;
+  desiredPlaybackTime = safeOffset;
+
+  // Handle end of playback naturally without fragile threshold calculation
+  instrumentalSource.onended = () => {
+    if (userPlaying) {
+      handleEnded();
     }
+  };
+};
 
-    const done = () => {
-      cleanup();
-      resolve();
-    };
-    const cleanup = () => {
-      clearTimeout(timer);
-      audio.removeEventListener("seeked", done);
-      audio.removeEventListener("timeupdate", done);
-      audio.removeEventListener("canplay", done);
-    };
-    const timer = setTimeout(done, 3000);
-    audio.addEventListener("seeked", done, { once: true });
-    audio.addEventListener("timeupdate", done, { once: true });
-    audio.addEventListener("canplay", done, { once: true });
-  });
+const stopSources = () => {
+  if (instrumentalSource) {
+    try {
+      instrumentalSource.onended = null;
+      instrumentalSource.stop();
+    } catch (e) {}
+    instrumentalSource = null;
+  }
+  if (vocalsSource) {
+    try {
+      vocalsSource.onended = null;
+      vocalsSource.stop();
+    } catch (e) {}
+    vocalsSource = null;
+  }
+};
+
+const handleEnded = () => {
+  userPlaying = false;
+  stopSources();
+  desiredPlaybackTime = 0;
+  playBtn.textContent = t.play;
+  seek.value = "0";
+  timeLabel.textContent = `0:00 / ${formatTime(currentDuration())}`;
+};
 
 const applySeekTime = (time) => {
-  if (!instrumentalAudio || !vocalsAudio) {
+  if (!instrumentalBuffer || !vocalsBuffer) {
     return false;
   }
 
   const duration = currentDuration();
   if (duration <= 0) {
-    pendingSeekTime = Math.max(0, time);
     return false;
   }
 
   const nextTime = Math.max(0, Math.min(duration, time));
   desiredPlaybackTime = nextTime;
-  setAudioTime(instrumentalAudio, nextTime);
-  setAudioTime(vocalsAudio, nextTime);
-  lastManualSeekAt = Date.now();
-  pendingSeekTime = null;
-  pendingSeekRatio = null;
-  seek.value = String(Math.round((nextTime / duration) * 1000));
-  timeLabel.textContent = `${formatTime(nextTime)} / ${formatTime(duration)}`;
+
+  if (userPlaying) {
+    startSources(nextTime);
+  } else {
+    seek.value = String(Math.round((nextTime / duration) * 1000));
+    timeLabel.textContent = `${formatTime(nextTime)} / ${formatTime(duration)}`;
+  }
   return true;
 };
 
-const seekBoth = async (time) => {
-  if (!instrumentalAudio || !vocalsAudio) {
-    return;
-  }
-
-  const duration = currentDuration();
-  if (duration <= 0) {
-    return;
-  }
-
-  const nextTime = Math.max(0, Math.min(duration, time));
-  desiredPlaybackTime = nextTime;
-  setAudioTime(instrumentalAudio, nextTime);
-  setAudioTime(vocalsAudio, nextTime);
-  await Promise.all([
-    waitForSeek(instrumentalAudio, nextTime),
-    waitForSeek(vocalsAudio, nextTime),
-  ]);
+const seekBoth = (time) => {
+  applySeekTime(time);
 };
 
 const applyPendingSeek = () => {
-  const duration = currentDuration();
-  if (pendingSeekRatio !== null && duration > 0) {
-    applySeekTime(pendingSeekRatio * duration);
-    return;
-  }
-
-  if (pendingSeekTime !== null) {
-    applySeekTime(pendingSeekTime);
-  }
+  // Managed on-demand upon buffer loading completion
 };
 
 const setupTimeSync = () => {
@@ -429,36 +439,24 @@ const setupTimeSync = () => {
   }
 
   syncTimer = setInterval(() => {
-    if (!instrumentalAudio || !vocalsAudio) {
+    if (!instrumentalBuffer || !vocalsBuffer || !audioContext) {
       return;
     }
 
-    const t = instrumentalAudio.currentTime || 0;
     const duration = currentDuration();
-    const settlingAfterSeek = isSeeking || Date.now() - lastManualSeekAt < 3000;
-    if (!settlingAfterSeek) {
-      desiredPlaybackTime = t;
-    }
-    if (!settlingAfterSeek && duration > 0) {
-      seek.value = String(Math.round((t / duration) * 1000));
-    }
+    if (duration <= 0) return;
 
-    timeLabel.textContent = `${formatTime(t)} / ${formatTime(duration)}`;
-
-    // Safe drift correction: only when both tracks are actively playing
-    // with data buffered, and not within cooldown of a recent seek/correction.
-    if (
-      !settlingAfterSeek &&
-      !instrumentalAudio.paused && !vocalsAudio.paused &&
-      !instrumentalAudio.seeking && !vocalsAudio.seeking &&
-      instrumentalAudio.readyState >= 3 && vocalsAudio.readyState >= 3
-    ) {
-      const drift = Math.abs((vocalsAudio.currentTime || 0) - t);
-      if (drift > 0.25) {
-        vocalsAudio.currentTime = t;
-        // Set cooldown so we don't re-correct for 3 seconds
-        lastManualSeekAt = Date.now();
+    let t = desiredPlaybackTime;
+    if (userPlaying) {
+      t = audioContext.currentTime - playbackStartTime;
+      if (t >= duration) {
+        t = duration;
       }
+    }
+
+    if (!isSeeking) {
+      seek.value = String(Math.round((t / duration) * 1000));
+      timeLabel.textContent = `${formatTime(t)} / ${formatTime(duration)}`;
     }
   }, 200);
 };
@@ -468,74 +466,61 @@ const loadPlayer = async (job) => {
     return;
   }
 
-  await resetPlayer();
+  resetPlayer();
   activeJobId = job.id;
-  const instrumentalUrl = new URL(job.instrumental_url, window.location.origin).toString();
-  const vocalsUrl = new URL(job.vocals_url, window.location.origin).toString();
-
-  instrumentalAudio = new Audio();
-  instrumentalAudio.crossOrigin = "use-credentials";
-  instrumentalAudio.src = instrumentalUrl;
-
-  vocalsAudio = new Audio();
-  vocalsAudio.crossOrigin = "use-credentials";
-  vocalsAudio.src = vocalsUrl;
-
-  instrumentalAudio.preload = "auto";
-  vocalsAudio.preload = "auto";
-  instrumentalAudio.addEventListener("loadedmetadata", applyPendingSeek);
-  vocalsAudio.addEventListener("loadedmetadata", applyPendingSeek);
-
-  // When a track stalls during seeking, the browser handles buffering natively.
-  // We just need to make sure both tracks resume playing after a stall resolves.
-  const handleStallRecovery = () => {
-    if (!userPlaying || !instrumentalAudio || !vocalsAudio) {
-      return;
-    }
-    // If user wants playback and a track got paused by a stall, resume it.
-    if (instrumentalAudio.paused) {
-      instrumentalAudio.play().catch(() => {});
-    }
-    if (vocalsAudio.paused) {
-      vocalsAudio.play().catch(() => {});
-    }
-    playBtn.textContent = t.pause;
-  };
-
-  instrumentalAudio.addEventListener("playing", handleStallRecovery);
-  vocalsAudio.addEventListener("playing", handleStallRecovery);
-
-  const handleEnded = () => {
-    userPlaying = false;
-    isPlayingStarted = false;
-    instrumentalAudio.pause();
-    vocalsAudio.pause();
-    instrumentalAudio.currentTime = 0;
-    vocalsAudio.currentTime = 0;
-    playBtn.textContent = t.play;
-    seek.value = "0";
-  };
-
-  instrumentalAudio.addEventListener("ended", handleEnded);
-  vocalsAudio.addEventListener("ended", handleEnded);
-
-  const handleAudioError = (e) => {
-    console.error("Audio error:", e);
-    setStatus(t.error("Failed to load audio stream."));
-  };
-  instrumentalAudio.addEventListener("error", handleAudioError);
-  vocalsAudio.addEventListener("error", handleAudioError);
-
+  renderJobs();
 
   playerTitle.textContent = job.filename;
-  downloadInstrumental.href = instrumentalUrl;
-  downloadVocals.href = vocalsUrl;
+  downloadInstrumental.href = new URL(job.instrumental_url, window.location.origin).toString();
+  downloadVocals.href = new URL(job.vocals_url, window.location.origin).toString();
   playerSection.classList.remove("hidden");
 
-  renderJobs();
-  ensureAudioGraph();
-  refreshVolumes();
-  setupTimeSync();
+  setStatus("Loading stems into memory... please wait...");
+  playBtn.disabled = true;
+  playBtn.textContent = "Loading...";
+
+  try {
+    if (!audioContext) {
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+
+    const instrumentalUrl = new URL(job.instrumental_url, window.location.origin).toString();
+    const vocalsUrl = new URL(job.vocals_url, window.location.origin).toString();
+
+    const [iRes, vRes] = await Promise.all([
+      fetch(instrumentalUrl, { credentials: "same-origin" }),
+      fetch(vocalsUrl, { credentials: "same-origin" })
+    ]);
+
+    if (!iRes.ok || !vRes.ok) {
+      throw new Error("Failed to fetch audio files from server.");
+    }
+
+    const [iArrayBuf, vArrayBuf] = await Promise.all([
+      iRes.arrayBuffer(),
+      vRes.arrayBuffer()
+    ]);
+
+    const [iBuffer, vBuffer] = await Promise.all([
+      safeDecodeAudioData(audioContext, iArrayBuf),
+      safeDecodeAudioData(audioContext, vArrayBuf)
+    ]);
+
+    instrumentalBuffer = iBuffer;
+    vocalsBuffer = vBuffer;
+
+    setStatus("Stems loaded!");
+    playBtn.disabled = false;
+    playBtn.textContent = t.play;
+
+    refreshVolumes();
+    setupTimeSync();
+  } catch (e) {
+    console.error("Failed to load/decode stems:", e);
+    setStatus(t.error("Failed to load audio stream."));
+    playBtn.textContent = t.play;
+    playBtn.disabled = true;
+  }
 };
 
 const describeJob = (job) => {
@@ -615,7 +600,7 @@ const deleteJob = async (job) => {
   try {
     await api(`/api/jobs/${job.id}`, { method: "DELETE" });
     jobs = jobs.filter((item) => item.id !== job.id);
-    await stopPlayerForDeletedJob(job.id);
+    stopPlayerForDeletedJob(job.id);
     renderJobs();
     setStatus(t.songDeleted);
   } catch (error) {
@@ -694,7 +679,7 @@ window.addEventListener("stemdeck:auth", async (event) => {
 logoutBtn.addEventListener("click", async () => {
   await api("/api/logout", { method: "POST" });
   jobs = [];
-  await resetPlayer();
+  resetPlayer();
   const payload = await api("/api/guest", { method: "POST" });
   showApp(payload.user);
   await refreshJobs();
@@ -771,125 +756,92 @@ if (youtubeUrl) {
 }
 
 playBtn.addEventListener("click", async () => {
-  if (!instrumentalAudio || !vocalsAudio) {
+  if (!instrumentalBuffer || !vocalsBuffer) {
     return;
   }
 
-  ensureAudioGraph();
-  if (audioContext?.state === "suspended") {
-    await audioContext.resume();
-  }
+  await ensureAudioContextActive();
 
-  if (instrumentalAudio.paused) {
+  if (!userPlaying) {
     userPlaying = true;
-    isPlayingStarted = false;
-    applyPendingSeek();
-    await seekBoth(desiredPlaybackTime);
-    try {
-      await Promise.all([instrumentalAudio.play(), vocalsAudio.play()]);
-      if (userPlaying) {
-        isPlayingStarted = true;
-      }
-    } catch (e) {
-      console.warn("Playback was interrupted or aborted:", e);
-    }
+    startSources(desiredPlaybackTime);
     playBtn.textContent = t.pause;
   } else {
     userPlaying = false;
-    isPlayingStarted = false;
-    instrumentalAudio.pause();
-    vocalsAudio.pause();
+    if (audioContext) {
+      desiredPlaybackTime = Math.max(0, audioContext.currentTime - playbackStartTime);
+    }
+    stopSources();
     playBtn.textContent = t.play;
   }
-
 });
 
 const handleSeek = () => {
-  if (!instrumentalAudio || !vocalsAudio) {
+  if (!instrumentalBuffer || !vocalsBuffer) {
     return;
   }
 
   const duration = currentDuration();
-  if (duration <= 0) {
-    pendingSeekRatio = Number(seek.value) / 1000;
-    pendingSeekTime = null;
-    return;
-  }
+  if (duration <= 0) return;
 
-  const requestedTime = duration > 0 ? (Number(seek.value) / 1000) * duration : 0;
+  const requestedTime = (Number(seek.value) / 1000) * duration;
   desiredPlaybackTime = requestedTime;
 
   if (isSeeking) {
-    // Only update UI during active drag
     timeLabel.textContent = `${formatTime(requestedTime)} / ${formatTime(duration)}`;
   } else {
     applySeekTime(requestedTime);
   }
 };
 
-// Hard-sync both tracks: pause, seek to same time, play together.
-// Called when user finishes a seek drag to eliminate drift.
-const hardSync = async (time) => {
-  if (!instrumentalAudio || !vocalsAudio) {
-    return;
-  }
-  const shouldPlay = wasPlayingBeforeSeek;
+const hardSync = (time) => {
+  applySeekTime(time);
+};
 
-  instrumentalAudio.pause();
-  vocalsAudio.pause();
-  await seekBoth(time);
-
-  if (shouldPlay && userPlaying) {
-    try {
-      await Promise.all([
-        instrumentalAudio.play(),
-        vocalsAudio.play()
-      ]);
-    } catch (e) {
-      console.warn("Playback interrupted during hard sync:", e);
+const onSeekStart = () => {
+  if (isSeeking) return;
+  isSeeking = true;
+  if (instrumentalBuffer && vocalsBuffer) {
+    wasPlayingBeforeSeek = userPlaying;
+    if (userPlaying) {
+      stopSources();
     }
   }
 };
 
-seek.addEventListener("pointerdown", () => {
-  if (isSeeking) return;
-  isSeeking = true;
-  isPlayingStarted = false;
-  if (instrumentalAudio && vocalsAudio) {
-    wasPlayingBeforeSeek = userPlaying && !instrumentalAudio.paused;
-    instrumentalAudio.pause();
-    vocalsAudio.pause();
+const onSeekEnd = async () => {
+  if (!isSeeking) return;
+  isSeeking = false;
+
+  await ensureAudioContextActive();
+
+  const duration = currentDuration();
+  const requestedTime = duration > 0 ? (Number(seek.value) / 1000) * duration : 0;
+  desiredPlaybackTime = requestedTime;
+  timeLabel.textContent = `${formatTime(requestedTime)} / ${formatTime(duration)}`;
+
+  if (wasPlayingBeforeSeek) {
+    userPlaying = true;
+    startSources(requestedTime);
+  } else {
+    applySeekTime(requestedTime);
   }
-});
-seek.addEventListener("pointerup", () => {
-  if (!isSeeking) return;
-  isSeeking = false;
-  isPlayingStarted = false;
+};
 
-  const duration = currentDuration();
-  const requestedTime = duration > 0 ? (Number(seek.value) / 1000) * duration : 0;
-  desiredPlaybackTime = requestedTime;
-  timeLabel.textContent = `${formatTime(requestedTime)} / ${formatTime(duration)}`;
+seek.addEventListener("mousedown", onSeekStart);
+seek.addEventListener("touchstart", onSeekStart, { passive: true });
 
-  hardSync(requestedTime);
-});
-seek.addEventListener("touchend", () => {
-  if (!isSeeking) return;
-  isSeeking = false;
-  isPlayingStarted = false;
+seek.addEventListener("mouseup", onSeekEnd);
+seek.addEventListener("touchend", onSeekEnd, { passive: true });
+seek.addEventListener("touchcancel", onSeekEnd, { passive: true });
 
-  const duration = currentDuration();
-  const requestedTime = duration > 0 ? (Number(seek.value) / 1000) * duration : 0;
-  desiredPlaybackTime = requestedTime;
-  timeLabel.textContent = `${formatTime(requestedTime)} / ${formatTime(duration)}`;
-
-  hardSync(requestedTime);
-});
 seek.addEventListener("input", handleSeek);
 seek.addEventListener("change", handleSeek);
 
 instrumentalVolume.addEventListener("input", refreshVolumes);
+instrumentalVolume.addEventListener("change", refreshVolumes);
 vocalsVolume.addEventListener("input", refreshVolumes);
+vocalsVolume.addEventListener("change", refreshVolumes);
 
 instrumentalMute.addEventListener("click", () => {
   instrumentalMuted = !instrumentalMuted;
