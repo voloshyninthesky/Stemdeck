@@ -142,6 +142,8 @@ h3 {
 .player-panel {
   padding: 16px;
   margin-bottom: 16px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .split-inputs {
@@ -495,6 +497,8 @@ button:disabled {
 .jobs-layout {
   display: grid;
   gap: 16px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .section-heading {
@@ -713,6 +717,117 @@ button:disabled {
   .or-divider::after {
     margin-left: 0;
     margin-top: 8px;
+  }
+}
+
+/* Chords Visualizer panel */
+.chords-panel-inner {
+  margin-top: 18px;
+  border-top: 2px dashed var(--line);
+  padding-top: 14px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.chords-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.chords-header .eyebrow {
+  margin-bottom: 0;
+}
+
+.chords-header button {
+  min-height: 38px;
+  padding: 6px 12px;
+  font-size: 14px;
+}
+
+.chords-track {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 12px 6px 14px 6px;
+  background: var(--field);
+  border: 2px solid var(--ink);
+  white-space: nowrap;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* Custom Scrollbars for the chords track */
+.chords-track::-webkit-scrollbar {
+  height: 8px;
+}
+.chords-track::-webkit-scrollbar-track {
+  background: var(--field);
+  border-top: 2px solid var(--ink);
+}
+.chords-track::-webkit-scrollbar-thumb {
+  background: var(--ink);
+}
+
+.chord-block {
+  flex: 0 0 76px;
+  height: 68px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  border: 2px solid var(--ink);
+  background: var(--paper);
+  cursor: pointer;
+  user-select: none;
+  box-shadow: 2px 2px 0 var(--ink);
+  transition: transform 100ms ease, box-shadow 100ms ease, background-color 100ms ease;
+}
+
+.chord-block:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.chord-block.active {
+  background: var(--lime);
+  box-shadow: 4px 4px 0 var(--ink);
+  transform: scale(1.05) translate(-1px, -1px);
+  z-index: 2;
+}
+
+.chord-name {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.chord-time {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 500px) {
+  .chord-block {
+    flex: 0 0 68px;
+    height: 60px;
+  }
+  
+  .chord-name {
+    font-size: 16px;
+  }
+  
+  .chord-time {
+    font-size: 9px;
   }
 }
 

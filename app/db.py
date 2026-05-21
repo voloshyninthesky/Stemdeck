@@ -95,6 +95,7 @@ def init_db() -> None:
             "separation_mode": (
                 "ALTER TABLE jobs ADD COLUMN separation_mode TEXT NOT NULL DEFAULT 'fast'"
             ),
+            "chords": "ALTER TABLE jobs ADD COLUMN chords TEXT",
         }
         for column, statement in migrations.items():
             if column not in columns:
@@ -296,6 +297,7 @@ def update_job(job_id: str, **fields: Any) -> None:
         "message",
         "error",
         "completed_at",
+        "chords",
     }
     unknown_fields = set(fields) - allowed_fields
     if unknown_fields:

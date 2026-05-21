@@ -24,7 +24,9 @@ from app import config
 from app import db
 from app import storage
 from app.range_response import parse_byte_range, stream_local_file
+import json
 from app.tasks import process_job
+from app.chords import detect_chords
 
 config.JOBS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -143,6 +145,7 @@ def serialize_job(job: dict[str, Any]) -> dict[str, Any]:
         "created_at": job["created_at"],
         "updated_at": job["updated_at"],
         "completed_at": job["completed_at"],
+        "chords": json.loads(job["chords"]) if job.get("chords") else None,
         "instrumental_url": None,
         "vocals_url": None,
     }
@@ -320,6 +323,59 @@ def delete_job(
     storage.remove_prefix(f"{job_id}/")
 
     return {"status": "deleted"}
+
+
+@app.post("/api/jobs/{job_id}/chords")
+def get_or_detect_chords(
+    job_id: str,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    job = db.get_job(job_id, user["id"])
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job["status"] != "done":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job status is '{job['status']}'. It must be 'done' to detect chords.",
+        )
+
+    if job.get("chords"):
+        try:
+            return {"chords": json.loads(job["chords"])}
+        except Exception:
+            pass
+
+    instrumental_path = Path(job.get("instrumental_path") or "")
+    if not instrumental_path.exists():
+        if storage.is_object_storage_enabled() and job.get("instrumental_key"):
+            try:
+                instrumental_path.parent.mkdir(parents=True, exist_ok=True)
+                storage.client().fget_object(
+                    config.STORAGE_BUCKET,
+                    job["instrumental_key"],
+                    str(instrumental_path),
+                )
+            except Exception as e:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to retrieve instrumental track from storage: {e}",
+                )
+        else:
+            raise HTTPException(
+                status_code=404,
+                detail="Instrumental file is missing on local server.",
+            )
+
+    try:
+        detected = detect_chords(instrumental_path)
+        db.update_job(job_id, chords=json.dumps(detected))
+        return {"chords": detected}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed during chord detection algorithm execution: {e}",
+        )
 
 
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB limit

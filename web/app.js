@@ -28,6 +28,9 @@ const instrumentalMute = document.getElementById("instrumentalMute");
 const vocalsMute = document.getElementById("vocalsMute");
 const downloadInstrumental = document.getElementById("downloadInstrumental");
 const downloadVocals = document.getElementById("downloadVocals");
+const chordsSection = document.getElementById("chordsSection");
+const detectChordsBtn = document.getElementById("detectChordsBtn");
+const chordsTrack = document.getElementById("chordsTrack");
 
 const fallbackTranslations = {
   en: {
@@ -63,6 +66,9 @@ const fallbackTranslations = {
     unmute: "Unmute",
     downloadInstrumental: "Download instrumental",
     downloadVocals: "Download vocals",
+    songChords: "Chords",
+    detectChords: "Detect Chords",
+    detectingChords: "Detecting chords...",
     noJobs: "No tracks yet.",
     delete: "Delete",
     loginProgress: "Logging in...",
@@ -107,6 +113,8 @@ let isSeeking = false;
 let wasPlayingBeforeSeek = false;
 let authPanelOpen = false;
 let userPlaying = false;
+let currentChords = null;
+let lastActiveChordIndex = -1;
 
 const safeDecodeAudioData = (context, arrayBuffer) => {
   return new Promise((resolve, reject) => {
@@ -292,6 +300,15 @@ const resetPlayer = () => {
   seek.value = "0";
   seek.style.setProperty('--seek-percent', '0%');
   timeLabel.textContent = "0:00 / 0:00";
+
+  currentChords = null;
+  lastActiveChordIndex = -1;
+  chordsSection.classList.add("hidden");
+  chordsTrack.innerHTML = "";
+  chordsTrack.classList.add("hidden");
+  detectChordsBtn.textContent = t.detectChords;
+  detectChordsBtn.classList.remove("hidden");
+  detectChordsBtn.disabled = false;
 };
 
 const stopPlayerForDeletedJob = (jobId) => {
@@ -468,6 +485,10 @@ const setupTimeSync = () => {
       seek.style.setProperty('--seek-percent', `${(t / duration) * 100}%`);
       timeLabel.textContent = `${formatTime(t)} / ${formatTime(duration)}`;
     }
+
+    if (currentChords) {
+      updateActiveChord(t);
+    }
   }, 200);
 };
 
@@ -525,6 +546,22 @@ const loadPlayer = async (job) => {
     setStatus("Stems loaded!");
     playBtn.disabled = false;
     playBtn.textContent = t.play;
+
+    // Initialize chords section
+    chordsSection.classList.remove("hidden");
+    if (job.chords) {
+      currentChords = job.chords;
+      renderChords(currentChords);
+      chordsTrack.classList.remove("hidden");
+      detectChordsBtn.classList.add("hidden");
+    } else {
+      currentChords = null;
+      chordsTrack.classList.add("hidden");
+      chordsTrack.innerHTML = "";
+      detectChordsBtn.textContent = t.detectChords;
+      detectChordsBtn.classList.remove("hidden");
+      detectChordsBtn.disabled = false;
+    }
 
     refreshVolumes();
     setupTimeSync();
@@ -872,7 +909,114 @@ languageButtons.forEach((button) => {
   button.addEventListener("click", () => setLanguage(button.dataset.lang));
 });
 
+const renderChords = (chordsList) => {
+  chordsTrack.innerHTML = "";
+  if (!chordsList || chordsList.length === 0) {
+    chordsTrack.classList.add("hidden");
+    return;
+  }
 
+  chordsList.forEach((c, index) => {
+    const card = document.createElement("div");
+    card.className = "chord-block";
+    card.dataset.index = index;
+    card.dataset.start = c.start;
+    card.dataset.end = c.end;
+
+    const name = document.createElement("span");
+    name.className = "chord-name";
+    name.textContent = c.chord;
+
+    const time = document.createElement("span");
+    time.className = "chord-time";
+    time.textContent = formatTime(c.start);
+
+    card.appendChild(name);
+    card.appendChild(time);
+
+    card.addEventListener("click", () => {
+      seekBoth(c.start);
+      updateActiveChord(c.start);
+    });
+
+    chordsTrack.appendChild(card);
+  });
+  
+  lastActiveChordIndex = -1;
+};
+
+const updateActiveChord = (time) => {
+  if (!currentChords || currentChords.length === 0) return;
+
+  let activeIndex = -1;
+  for (let i = 0; i < currentChords.length; i++) {
+    if (time >= currentChords[i].start && time < currentChords[i].end) {
+      activeIndex = i;
+      break;
+    }
+  }
+
+  if (activeIndex === -1 && currentChords.length > 0) {
+    if (time < currentChords[0].start) {
+      activeIndex = 0;
+    } else {
+      activeIndex = currentChords.length - 1;
+    }
+  }
+
+  if (activeIndex !== lastActiveChordIndex) {
+    const prevBlock = chordsTrack.querySelector(`.chord-block[data-index="${lastActiveChordIndex}"]`);
+    if (prevBlock) {
+      prevBlock.classList.remove("active");
+    }
+
+    const activeBlock = chordsTrack.querySelector(`.chord-block[data-index="${activeIndex}"]`);
+    if (activeBlock) {
+      activeBlock.classList.add("active");
+      
+      const containerWidth = chordsTrack.clientWidth;
+      const blockWidth = activeBlock.offsetWidth;
+      const blockLeft = activeBlock.offsetLeft;
+      
+      chordsTrack.scrollTo({
+        left: blockLeft - (containerWidth / 2) + (blockWidth / 2),
+        behavior: "smooth"
+      });
+    }
+
+    lastActiveChordIndex = activeIndex;
+  }
+};
+
+detectChordsBtn.addEventListener("click", async () => {
+  if (!activeJobId) return;
+
+  detectChordsBtn.disabled = true;
+  detectChordsBtn.textContent = t.detectingChords;
+
+  try {
+    const res = await api(`/api/jobs/${activeJobId}/chords`, { method: "POST" });
+    if (res && res.chords) {
+      currentChords = res.chords;
+      
+      const localJob = jobs.find(j => j.id === activeJobId);
+      if (localJob) {
+        localJob.chords = res.chords;
+      }
+      
+      renderChords(currentChords);
+      chordsTrack.classList.remove("hidden");
+      detectChordsBtn.classList.add("hidden");
+    } else {
+      throw new Error("Failed to detect chords");
+    }
+  } catch (err) {
+    console.error("Chord detection failed:", err);
+    alert(t.error(err.message || "Failed to detect chords"));
+    detectChordsBtn.disabled = false;
+    detectChordsBtn.textContent = t.detectChords;
+  }
+});
 
 scrubCredentialsFromUrl();
 applyTranslations();

@@ -8,3 +8,4 @@ sherpa-onnx
 audio-separator[cpu]
 minio
 yt-dlp
+librosa
