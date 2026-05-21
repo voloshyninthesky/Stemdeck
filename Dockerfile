@@ -19,8 +19,11 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
+# Torchaudio 2.9+ requires torchcodec for ta.save() (used by Demucs). Pin 2.8 to
+# avoid torchcodec (PyPI builds need CUDA libs; CPU wheels are linux x86_64 only).
 RUN pip install --upgrade pip \
-    && pip install --index-url https://download.pytorch.org/whl/cpu torch torchaudio torchvision \
+    && pip install --index-url https://download.pytorch.org/whl/cpu \
+        "torch==2.8.0" "torchaudio==2.8.0" \
     && pip install -r requirements.txt
 
 COPY app ./app

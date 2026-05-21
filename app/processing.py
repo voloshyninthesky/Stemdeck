@@ -65,8 +65,6 @@ def separate_audio(
     report_progress(30, "Separating vocals")
     if separation_mode == "fast":
         run_fast_separator(audio_wav, job_dir, instrumental_out, vocals_out)
-    elif config.DEMUCS_BACKEND == "replicate" and config.REPLICATE_API_TOKEN:
-        run_replicate_demucs(audio_wav, instrumental_out, vocals_out)
     else:
         run_demucs_separator(audio_wav, job_dir, instrumental_out, vocals_out)
 
@@ -94,61 +92,6 @@ def result_payload(instrumental_path: Path, vocals_path: Path) -> dict[str, str 
         "instrumental_path": str(instrumental_path),
         "vocals_path": str(vocals_path),
     }
-
-
-def _download_file(url: str, dest: Path) -> None:
-    """Download a file from a URL to a local path."""
-    import urllib.request as _req
-
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_suffix(".tmp")
-    try:
-        with _req.urlopen(url, timeout=120) as resp, tmp.open("wb") as out:
-            shutil.copyfileobj(resp, out)
-        if not tmp.exists() or tmp.stat().st_size == 0:
-            raise RuntimeError(f"Downloaded file is empty: {url}")
-        tmp.replace(dest)
-    except Exception:
-        tmp.unlink(missing_ok=True)
-        raise
-
-
-def run_replicate_demucs(
-    audio_wav: Path,
-    instrumental_out: Path,
-    vocals_out: Path,
-) -> None:
-    """Run Demucs on a serverless GPU via Replicate."""
-    import replicate as _replicate
-
-    client = _replicate.Client(api_token=config.REPLICATE_API_TOKEN)
-
-    with open(audio_wav, "rb") as f:
-        output = client.run(
-            config.REPLICATE_DEMUCS_MODEL,
-            input={
-                "audio": f,
-                "model_name": "htdemucs",
-                "stem": "vocals",
-                "output_format": "wav",
-            },
-        )
-
-    if not isinstance(output, dict):
-        raise RuntimeError(f"Unexpected Replicate output type: {type(output)}")
-
-    vocals_url = output.get("vocals")
-    instrumental_url = output.get("other") or output.get("no_vocals")
-    if not vocals_url or not instrumental_url:
-        raise RuntimeError(
-            f"Replicate Demucs did not return both stems. Keys: {list(output.keys())}"
-        )
-
-    _download_file(str(vocals_url), vocals_out)
-    _download_file(str(instrumental_url), instrumental_out)
-
-    if not outputs_are_ready(instrumental_out, vocals_out):
-        raise RuntimeError("Replicate Demucs produced empty stems")
 
 
 def run_demucs_separator(

@@ -2,12 +2,8 @@ fastapi
 uvicorn[standard]
 python-multipart
 celery
-torch
-torchaudio
-torchcodec
 demucs
 soundfile
 sherpa-onnx
 audio-separator[cpu]
 minio
-replicate

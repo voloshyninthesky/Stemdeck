@@ -20,10 +20,17 @@ Features:
 
 ## Setup
 
-Install dependencies:
+Install dependencies (pin CPU PyTorch 2.8 — Torchaudio 2.9+ needs `torchcodec`, whose PyPI wheel pulls CUDA libs):
 
 ```bash
+pip install --index-url https://download.pytorch.org/whl/cpu "torch==2.8.0" "torchaudio==2.8.0"
 pip install -r requirements.txt
+```
+
+On Linux x86_64 you can use newer versions if you also install CPU `torchcodec` from the same index:
+
+```bash
+pip install --index-url https://download.pytorch.org/whl/cpu torch torchaudio torchcodec
 ```
 
 Make sure `ffmpeg` is installed and available in `PATH`.

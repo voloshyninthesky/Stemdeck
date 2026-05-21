@@ -25,7 +25,7 @@ sudo rsync -a --delete ./ /opt/stemdeck/
 sudo chown -R stemdeck:stemdeck /opt/stemdeck
 sudo -u stemdeck python3.11 -m venv /opt/stemdeck/.venv
 sudo -u stemdeck /opt/stemdeck/.venv/bin/pip install --upgrade pip
-sudo -u stemdeck /opt/stemdeck/.venv/bin/pip install --index-url https://download.pytorch.org/whl/cpu torch torchaudio torchcodec
+sudo -u stemdeck /opt/stemdeck/.venv/bin/pip install --index-url https://download.pytorch.org/whl/cpu "torch==2.8.0" "torchaudio==2.8.0"
 sudo -u stemdeck /opt/stemdeck/.venv/bin/pip install -r /opt/stemdeck/requirements.txt
 ```
 
