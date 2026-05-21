@@ -120,7 +120,7 @@ h3 {
 }
 
 .hidden {
-  display: none;
+  display: none !important;
 }
 
 .card,
@@ -734,6 +734,11 @@ button:disabled {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 12px;
+}
+
+.chords-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .chords-header .eyebrow {

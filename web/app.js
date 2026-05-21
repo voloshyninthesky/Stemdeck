@@ -30,6 +30,7 @@ const downloadInstrumental = document.getElementById("downloadInstrumental");
 const downloadVocals = document.getElementById("downloadVocals");
 const chordsSection = document.getElementById("chordsSection");
 const detectChordsBtn = document.getElementById("detectChordsBtn");
+const deleteChordsBtn = document.getElementById("deleteChordsBtn");
 const chordsTrack = document.getElementById("chordsTrack");
 
 const fallbackTranslations = {
@@ -71,6 +72,8 @@ const fallbackTranslations = {
     detectingChords: "Detecting chords...",
     hideChords: "Hide Chords",
     showChords: "Show Chords",
+    deleteChords: "Delete Chords",
+    confirmDeleteChords: "Are you sure you want to delete the detected chords?",
     noJobs: "No tracks yet.",
     delete: "Delete",
     loginProgress: "Logging in...",
@@ -318,6 +321,10 @@ const resetPlayer = () => {
   detectChordsBtn.textContent = t.detectChords;
   detectChordsBtn.classList.remove("hidden");
   detectChordsBtn.disabled = false;
+  if (deleteChordsBtn) {
+    deleteChordsBtn.classList.add("hidden");
+    deleteChordsBtn.disabled = false;
+  }
 };
 
 const stopPlayerForDeletedJob = (jobId) => {
@@ -565,6 +572,10 @@ const loadPlayer = async (job) => {
       detectChordsBtn.textContent = t.hideChords;
       detectChordsBtn.classList.remove("hidden");
       detectChordsBtn.disabled = false;
+      if (deleteChordsBtn) {
+        deleteChordsBtn.classList.remove("hidden");
+        deleteChordsBtn.disabled = false;
+      }
     } else {
       currentChords = null;
       chordsTrack.classList.add("hidden");
@@ -572,6 +583,9 @@ const loadPlayer = async (job) => {
       detectChordsBtn.textContent = t.detectChords;
       detectChordsBtn.classList.remove("hidden");
       detectChordsBtn.disabled = false;
+      if (deleteChordsBtn) {
+        deleteChordsBtn.classList.add("hidden");
+      }
     }
 
     refreshVolumes();
@@ -1034,6 +1048,10 @@ detectChordsBtn.addEventListener("click", async () => {
       
       detectChordsBtn.disabled = false;
       detectChordsBtn.textContent = t.hideChords;
+      if (deleteChordsBtn) {
+        deleteChordsBtn.classList.remove("hidden");
+        deleteChordsBtn.disabled = false;
+      }
     } else {
       throw new Error("Failed to detect chords");
     }
@@ -1044,6 +1062,37 @@ detectChordsBtn.addEventListener("click", async () => {
     detectChordsBtn.textContent = t.detectChords;
   }
 });
+
+if (deleteChordsBtn) {
+  deleteChordsBtn.addEventListener("click", async () => {
+    if (!activeJobId) return;
+    const ok = window.confirm(t.confirmDeleteChords || "Are you sure you want to delete the detected chords?");
+    if (!ok) return;
+
+    deleteChordsBtn.disabled = true;
+    try {
+      await api(`/api/jobs/${activeJobId}/chords`, { method: "DELETE" });
+      
+      currentChords = null;
+      const localJob = jobs.find(j => j.id === activeJobId);
+      if (localJob) {
+        localJob.chords = null;
+      }
+      
+      chordsTrack.classList.add("hidden");
+      chordsTrack.innerHTML = "";
+      deleteChordsBtn.classList.add("hidden");
+      
+      detectChordsBtn.disabled = false;
+      detectChordsBtn.textContent = t.detectChords;
+    } catch (err) {
+      console.error("Failed to delete chords:", err);
+      alert(t.error(err.message || "Failed to delete chords"));
+    } finally {
+      deleteChordsBtn.disabled = false;
+    }
+  });
+}
 
 scrubCredentialsFromUrl();
 applyTranslations();

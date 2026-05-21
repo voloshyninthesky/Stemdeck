@@ -378,6 +378,19 @@ def get_or_detect_chords(
         )
 
 
+@app.delete("/api/jobs/{job_id}/chords")
+def delete_chords(
+    job_id: str,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    job = db.get_job(job_id, user["id"])
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    db.update_job(job_id, chords=None)
+    return {"status": "deleted"}
+
+
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB limit
 ALLOWED_EXTENSIONS = {
     ".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac",
