@@ -56,15 +56,20 @@ npm run test:e2e
 ## VPS Deployment
 
 ### Automated Script
-Sync codebase and rebuild containers on the remote host configured in `deploy.sh`:
-```bash
-./deploy.sh
-```
+1. Copy `deploy.sh.example` to `deploy.sh` and customize it with your server's credentials:
+   ```bash
+   cp deploy.sh.example deploy.sh
+   chmod +x deploy.sh
+   ```
+2. Run the deployment script to sync the codebase and rebuild containers:
+   ```bash
+   ./deploy.sh
+   ```
 
 ### Manual Setup
 1. Install Docker and Docker Compose on the host.
-2. Clone repository, copy `.env.example` to `.env`.
-3. Start stack:
+2. Clone the repository and copy `.env.example` to `.env`.
+3. Start the stack:
    ```bash
    docker compose up -d --build
    ```

@@ -22,3 +22,18 @@ output/
 temp_audio.wav
 
 node_modules/
+
+# Local deployment script
+deploy.sh
+
+# Temporary databases & caches
+.ruff_cache/
+models/
+*.sqlite3-journal
+*.sqlite3-shm
+*.sqlite3-wal
+*.db-journal
+
+# Local environment variables
+.env.local
+.env.*.local

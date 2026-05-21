@@ -1,14 +1,15 @@
 #!/bin/bash
-# VPS Deployment Script for Stemdeck
+# VPS Deployment Script for Stemdeck (Example Template)
+# Copy this to deploy.sh and customize for your environment
 
 # Exit immediately if a command exits with a non-zero status
 set -e
 
 # Deployment Configuration
-VPS_HOST="194.62.248.44"
+VPS_HOST="your-vps-ip"
 VPS_USER="root"
 VPS_PATH="/opt/stemdeck"
-SSH_KEY="/Users/vadymvoloshyn/.ssh/id_rsa2"
+SSH_KEY="~/.ssh/id_rsa"
 
 # Colors for styling terminal output
 GREEN='\033[0;32m'
