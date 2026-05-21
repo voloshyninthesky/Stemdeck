@@ -103,7 +103,7 @@ let pendingSeekTime = null;
 let pendingSeekRatio = null;
 let isSeeking = false;
 let lastManualSeekAt = 0;
-let audioGraphUnavailable = false;
+let audioGraphUnavailable = true;
 let desiredPlaybackTime = 0;
 let authPanelOpen = false;
 let userPlaying = false;
@@ -260,7 +260,7 @@ const resetPlayer = async () => {
   vocalsAudio = null;
   instrumentalGain = null;
   vocalsGain = null;
-  audioGraphUnavailable = false;
+  audioGraphUnavailable = true;
   pendingSeekTime = null;
   pendingSeekRatio = null;
   desiredPlaybackTime = 0;
@@ -408,8 +408,6 @@ const seekBoth = async (time) => {
     waitForSeek(instrumentalAudio, nextTime),
     waitForSeek(vocalsAudio, nextTime),
   ]);
-  setAudioTime(instrumentalAudio, nextTime);
-  setAudioTime(vocalsAudio, nextTime);
 };
 
 const applyPendingSeek = () => {
@@ -445,15 +443,6 @@ const setupTimeSync = () => {
     }
 
     timeLabel.textContent = `${formatTime(t)} / ${formatTime(duration)}`;
-
-    if (settlingAfterSeek) {
-      return;
-    }
-
-    const drift = Math.abs((vocalsAudio.currentTime || 0) - t);
-    if (drift > 0.08) {
-      vocalsAudio.currentTime = t;
-    }
   }, 100);
 };
 
@@ -480,47 +469,24 @@ const loadPlayer = async (job) => {
   instrumentalAudio.addEventListener("loadedmetadata", applyPendingSeek);
   vocalsAudio.addEventListener("loadedmetadata", applyPendingSeek);
 
-  let isInstrumentalWaiting = false;
-  let isVocalsWaiting = false;
-
-  const handleWaiting = (isInstrumental) => {
-    if (isInstrumental) isInstrumentalWaiting = true;
-    else isVocalsWaiting = true;
-
-    if (userPlaying && isPlayingStarted && (!instrumentalAudio.paused || !vocalsAudio.paused)) {
-      isPlayingStarted = false;
-      if (isInstrumental) {
-        vocalsAudio.pause();
-      } else {
-        instrumentalAudio.pause();
-      }
-      playBtn.textContent = "...";
+  // When a track stalls during seeking, the browser handles buffering natively.
+  // We just need to make sure both tracks resume playing after a stall resolves.
+  const handleStallRecovery = () => {
+    if (!userPlaying || !instrumentalAudio || !vocalsAudio) {
+      return;
     }
+    // If user wants playback and a track got paused by a stall, resume it.
+    if (instrumentalAudio.paused) {
+      instrumentalAudio.play().catch(() => {});
+    }
+    if (vocalsAudio.paused) {
+      vocalsAudio.play().catch(() => {});
+    }
+    playBtn.textContent = t.pause;
   };
 
-  const handlePlaying = (isInstrumental) => {
-    if (isInstrumental) isInstrumentalWaiting = false;
-    else isVocalsWaiting = false;
-
-    if (userPlaying && !isInstrumentalWaiting && !isVocalsWaiting) {
-      isPlayingStarted = false;
-      Promise.all([
-        instrumentalAudio.play().catch(() => {}),
-        vocalsAudio.play().catch(() => {})
-      ]).then(() => {
-        if (userPlaying) {
-          isPlayingStarted = true;
-        }
-      });
-      playBtn.textContent = t.pause;
-    }
-  };
-
-  instrumentalAudio.addEventListener("waiting", () => handleWaiting(true));
-  vocalsAudio.addEventListener("waiting", () => handleWaiting(false));
-
-  instrumentalAudio.addEventListener("playing", () => handlePlaying(true));
-  vocalsAudio.addEventListener("playing", () => handlePlaying(false));
+  instrumentalAudio.addEventListener("playing", handleStallRecovery);
+  vocalsAudio.addEventListener("playing", handleStallRecovery);
 
   const handleEnded = () => {
     userPlaying = false;
