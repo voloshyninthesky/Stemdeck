@@ -69,6 +69,8 @@ const fallbackTranslations = {
     songChords: "Chords",
     detectChords: "Detect Chords",
     detectingChords: "Detecting chords...",
+    hideChords: "Hide Chords",
+    showChords: "Show Chords",
     noJobs: "No tracks yet.",
     delete: "Delete",
     loginProgress: "Logging in...",
@@ -225,6 +227,13 @@ const refreshLocalizedUi = () => {
   }
   if (instrumentalBuffer && vocalsBuffer) {
     playBtn.textContent = userPlaying ? t.pause : t.play;
+  }
+  if (detectChordsBtn) {
+    if (currentChords) {
+      detectChordsBtn.textContent = chordsTrack.classList.contains("hidden") ? t.showChords : t.hideChords;
+    } else {
+      detectChordsBtn.textContent = detectChordsBtn.disabled ? t.detectingChords : t.detectChords;
+    }
   }
   if (!activeJobId && playerSection.classList.contains("hidden")) {
     playerTitle.textContent = t.player;
@@ -553,7 +562,9 @@ const loadPlayer = async (job) => {
       currentChords = job.chords;
       renderChords(currentChords);
       chordsTrack.classList.remove("hidden");
-      detectChordsBtn.classList.add("hidden");
+      detectChordsBtn.textContent = t.hideChords;
+      detectChordsBtn.classList.remove("hidden");
+      detectChordsBtn.disabled = false;
     } else {
       currentChords = null;
       chordsTrack.classList.add("hidden");
@@ -991,6 +1002,20 @@ const updateActiveChord = (time) => {
 detectChordsBtn.addEventListener("click", async () => {
   if (!activeJobId) return;
 
+  // Toggle visibility if chords are already loaded
+  if (currentChords) {
+    const isHidden = chordsTrack.classList.contains("hidden");
+    if (isHidden) {
+      chordsTrack.classList.remove("hidden");
+      detectChordsBtn.textContent = t.hideChords;
+    } else {
+      chordsTrack.classList.add("hidden");
+      detectChordsBtn.textContent = t.showChords;
+    }
+    return;
+  }
+
+  // Otherwise start detection manually
   detectChordsBtn.disabled = true;
   detectChordsBtn.textContent = t.detectingChords;
 
@@ -1006,7 +1031,9 @@ detectChordsBtn.addEventListener("click", async () => {
       
       renderChords(currentChords);
       chordsTrack.classList.remove("hidden");
-      detectChordsBtn.classList.add("hidden");
+      
+      detectChordsBtn.disabled = false;
+      detectChordsBtn.textContent = t.hideChords;
     } else {
       throw new Error("Failed to detect chords");
     }
