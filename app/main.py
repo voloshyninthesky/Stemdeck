@@ -1,4 +1,7 @@
+import hashlib
+import hmac
 import threading
+import time
 import uuid
 import shutil
 from datetime import timedelta
@@ -13,6 +16,7 @@ from fastapi import (
     Form,
     Header,
     HTTPException,
+    Query,
     Response,
     UploadFile,
 )
@@ -27,6 +31,37 @@ from app.range_response import parse_byte_range, stream_local_file
 import json
 from app.tasks import process_job
 from app.chords import detect_chords
+
+
+TOKEN_TTL = 24 * 3600  # 24 hours
+
+
+def generate_mixer_token(job_id: str) -> str:
+    """Create a signed token granting access to a job's stems for TOKEN_TTL seconds."""
+    ts = str(int(time.time()))
+    sig = hmac.new(
+        config.TELEGRAM_LINK_SECRET.encode(),
+        f"{job_id}:{ts}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"{ts}:{sig}"
+
+
+def verify_mixer_token(job_id: str, token: str) -> bool:
+    """Verify a signed mixer token."""
+    try:
+        ts_str, sig = token.split(":", 1)
+        ts = int(ts_str)
+    except (ValueError, AttributeError):
+        return False
+    if abs(time.time() - ts) > TOKEN_TTL:
+        return False
+    expected = hmac.new(
+        config.TELEGRAM_LINK_SECRET.encode(),
+        f"{job_id}:{ts_str}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(sig, expected)
 
 config.JOBS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -56,6 +91,11 @@ def startup() -> None:
 @app.get("/")
 def root() -> FileResponse:
     return FileResponse(config.WEB_DIR / "index.html")
+
+
+@app.get("/mixer")
+def mixer_page() -> FileResponse:
+    return FileResponse(config.WEB_DIR / "mixer.html")
 
 
 @app.get("/manifest.webmanifest")
@@ -140,7 +180,7 @@ def serialize_job(job: dict[str, Any]) -> dict[str, Any]:
         "message": job["message"],
         "error": job["error"],
         "duration": job["duration"],
-        "separation_mode": job.get("separation_mode", "fast"),
+        "separation_mode": job.get("separation_mode", "quality"),
         "queue_position": queue_position,
         "created_at": job["created_at"],
         "updated_at": job["updated_at"],
@@ -249,9 +289,17 @@ def jobs(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
 @app.get("/api/jobs/{job_id}")
 def job_detail(
     job_id: str,
-    user: dict[str, Any] = Depends(current_user),
+    token: str | None = Query(default=None),
+    user: dict[str, Any] | None = Depends(optional_current_user),
 ) -> dict[str, Any]:
-    job = db.get_job(job_id, user["id"])
+    # Check token first (so Telegram bot/mixer url works even if web user cookie is set but doesn't own this job)
+    if token and verify_mixer_token(job_id, token):
+        job = db.get_job(job_id)
+    elif user:
+        job = db.get_job(job_id, user["id"])
+    else:
+        raise HTTPException(status_code=401, detail="Login required")
+
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return {"job": serialize_job(job)}
@@ -262,12 +310,21 @@ def job_file(
     job_id: str,
     stem: str,
     range_header: str | None = Header(default=None, alias="Range"),
-    user: dict[str, Any] = Depends(current_user),
+    token: str | None = Query(default=None),
+    user: dict[str, Any] | None = Depends(optional_current_user),
 ) -> Response:
     if stem not in {"instrumental", "vocals"}:
         raise HTTPException(status_code=404, detail="File not found")
 
-    job = db.get_job(job_id, user["id"])
+    # Support token-based auth (for Telegram mixer) or cookie auth
+    # Check token first (so Telegram bot/mixer url works even if web user cookie is set but doesn't own this job)
+    if token and verify_mixer_token(job_id, token):
+        job = db.get_job(job_id)
+    elif user:
+        job = db.get_job(job_id, user["id"])
+    else:
+        raise HTTPException(status_code=401, detail="Login required")
+
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
@@ -402,7 +459,6 @@ ALLOWED_EXTENSIONS = {
 async def create_job(
     file: UploadFile | None = File(None),
     youtube_url: str | None = Form(None),
-    fast_mode: bool = Form(True),
     user: dict[str, Any] = Depends(current_user),
 ) -> dict[str, Any]:
     has_file = file is not None and bool(file.filename)
@@ -419,7 +475,7 @@ async def create_job(
             detail="Cannot provide both a file upload and a YouTube URL simultaneously.",
         )
 
-    separation_mode = "fast" if fast_mode else "quality"
+    separation_mode = "quality"
 
     if has_url:
         url_val = youtube_url.strip()

@@ -1,0 +1,383 @@
+/* ── Neubrutalist Telegram Mixer Styles ── */
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,650;9..144,800&family=Atkinson+Hyperlegible:wght@400;700&display=swap");
+
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+:root {
+    --ink: #101511;
+    --paper: #fbf7ed;
+    --panel: #fffaf0;
+    --field: #f2eadb;
+    --muted: #6d756b;
+    --line: #262f26;
+    --lime: #c7f464;
+    --teal: #11a7a3;
+    --coral: #ff6b57;
+    --shadow: 8px 8px 0 var(--ink);
+}
+
+body {
+    min-height: 100vh;
+    overflow-x: hidden;
+    font-family: "Atkinson Hyperlegible", -apple-system, BlinkMacSystemFont, sans-serif;
+    background:
+      linear-gradient(90deg, rgba(16, 21, 17, 0.045) 1px, transparent 1px),
+      linear-gradient(rgba(16, 21, 17, 0.045) 1px, transparent 1px),
+      radial-gradient(circle at 20% 0%, rgba(199, 244, 100, 0.42), transparent 34%),
+      linear-gradient(150deg, #fff7e4 0%, var(--paper) 48%, #e4f1e9 100%);
+    background-size: 24px 24px, 24px 24px, auto, auto;
+    color: var(--ink);
+    padding: 16px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+}
+
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-image: repeating-linear-gradient(
+      -8deg,
+      rgba(16, 21, 17, 0.035) 0,
+      rgba(16, 21, 17, 0.035) 1px,
+      transparent 1px,
+      transparent 9px
+    );
+    mix-blend-mode: multiply;
+}
+
+/* ── Container ── */
+.container {
+    width: 100%;
+    max-width: 480px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    position: relative;
+    z-index: 1;
+}
+
+/* ── Neomorphic/Neubrutalist Card Styling ── */
+.card, .player-panel {
+    border: 2px solid var(--ink);
+    background: rgba(255, 250, 240, 0.9);
+    box-shadow: var(--shadow);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+}
+
+.player-panel {
+    background:
+      linear-gradient(160deg, rgba(17, 167, 163, 0.22), transparent 58%),
+      var(--panel);
+}
+
+.player-header {
+    margin-bottom: 16px;
+}
+
+.eyebrow {
+    margin-bottom: 6px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.player-title {
+    font-family: "Fraunces", Georgia, serif;
+    font-size: 22px;
+    line-height: 1.1;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+/* ── Loading / Error States ── */
+.mixer-loading, .mixer-error {
+    text-align: center;
+    padding: 40px 20px;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+}
+
+.mixer-loading .spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid var(--field);
+    border-top: 4px solid var(--ink);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.mixer-error.danger {
+    background: var(--coral);
+    color: var(--ink);
+}
+
+.mixer-error .error-icon {
+    font-size: 2.2rem;
+    line-height: 1;
+}
+
+.mixer-error .status {
+    color: var(--ink);
+    font-weight: 700;
+}
+
+
+/* ── Transport Controls ── */
+.controls-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.time-display {
+    color: var(--muted);
+    font-weight: 700;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    min-width: 80px;
+    text-align: right;
+}
+
+/* ── Neubrutalist Sliders ── */
+input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 14px;
+    background: var(--field);
+    border: 2px solid var(--ink);
+    outline: none;
+    cursor: pointer;
+}
+
+/* WebKit (Chrome, Safari, Edge, Opera) */
+input[type="range"]::-webkit-slider-runnable-track {
+    height: 10px;
+    background: transparent;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 24px;
+    height: 24px;
+    background: var(--teal);
+    border: 2px solid var(--ink);
+    box-shadow: 3px 3px 0 var(--ink);
+    cursor: pointer;
+    margin-top: -8px;
+    transition: transform 100ms ease, box-shadow 100ms ease, background-color 100ms ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+    transform: translate(-1px, -1px);
+    box-shadow: 4px 4px 0 var(--ink);
+}
+
+input[type="range"]::-webkit-slider-thumb:active {
+    transform: translate(1px, 1px);
+    box-shadow: 1px 1px 0 var(--ink);
+}
+
+/* Firefox */
+input[type="range"]::-moz-range-track {
+    height: 10px;
+    background: transparent;
+}
+
+input[type="range"]::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    background: var(--teal);
+    border: 2px solid var(--ink);
+    box-shadow: 3px 3px 0 var(--ink);
+    cursor: pointer;
+    transition: transform 100ms ease, box-shadow 100ms ease, background-color 100ms ease;
+}
+
+input[type="range"]::-moz-range-thumb:hover {
+    transform: translate(-1px, -1px);
+    box-shadow: 4px 4px 0 var(--ink);
+}
+
+input[type="range"]::-moz-range-thumb:active {
+    transform: translate(1px, 1px);
+    box-shadow: 1px 1px 0 var(--ink);
+}
+
+/* Seek Bar specific colors */
+#seek-bar {
+    background: linear-gradient(
+      to right,
+      var(--lime) 0%,
+      var(--lime) var(--seek-percent, 0%),
+      var(--field) var(--seek-percent, 0%),
+      var(--field) 100%
+    );
+}
+
+#seek-bar::-webkit-slider-thumb {
+    background: var(--lime);
+}
+
+#seek-bar::-moz-range-thumb {
+    background: var(--lime);
+}
+
+/* Volume Sliders specific colors */
+.volume-slider {
+    background: linear-gradient(
+      to right,
+      var(--teal) 0%,
+      var(--teal) var(--volume-percent, 100%),
+      var(--field) var(--volume-percent, 100%),
+      var(--field) 100%
+    );
+    margin-bottom: 12px;
+}
+
+.volume-slider::-webkit-slider-thumb {
+    background: var(--teal);
+}
+
+.volume-slider::-moz-range-thumb {
+    background: var(--teal);
+}
+
+/* ── Neubrutalist Buttons ── */
+button {
+    min-height: 44px;
+    border: 2px solid var(--ink);
+    border-radius: 0;
+    background: var(--ink);
+    color: var(--paper);
+    box-shadow: 4px 4px 0 var(--lime);
+    cursor: pointer;
+    font: inherit;
+    font-weight: 700;
+    padding: 10px 14px;
+    text-align: center;
+    text-decoration: none;
+    transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease;
+    white-space: nowrap;
+}
+
+button:hover {
+    transform: translate(-2px, -2px);
+    box-shadow: 6px 6px 0 var(--lime);
+}
+
+button:active {
+    transform: translate(1px, 1px);
+    box-shadow: 1px 1px 0 var(--lime);
+}
+
+button:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+    transform: none;
+    box-shadow: 2px 2px 0 var(--ink);
+}
+
+.secondary {
+    background: var(--paper);
+    color: var(--ink);
+    box-shadow: 4px 4px 0 var(--teal);
+}
+
+.secondary:hover {
+    box-shadow: 6px 6px 0 var(--teal);
+}
+
+.secondary:active {
+    box-shadow: 1px 1px 0 var(--teal);
+}
+
+/* ── Channels Grid ── */
+.mix-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+    margin-top: 8px;
+}
+
+.channel-card {
+    border: 2px solid var(--ink);
+    background: rgba(255, 255, 255, 0.48);
+    padding: 14px;
+    box-shadow: 4px 4px 0 var(--ink);
+    display: flex;
+    flex-direction: column;
+}
+
+.channel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.channel-header h3 {
+    font-family: "Fraunces", Georgia, serif;
+    font-size: 16px;
+    font-weight: 800;
+    color: var(--ink);
+}
+
+.volume-value {
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.mute-btn {
+    align-self: flex-start;
+    min-height: 38px;
+    padding: 6px 12px;
+    font-size: 14px;
+}
+
+.mute-btn.active {
+    background: var(--coral) !important;
+    color: var(--ink) !important;
+    box-shadow: 4px 4px 0 var(--ink) !important;
+}
+
+/* ── Responsive adjustments ── */
+@media (max-width: 360px) {
+    body {
+        padding: 8px;
+    }
+    .card, .player-panel {
+        padding: 12px;
+    }
+
+    .player-title {
+        font-size: 18px;
+    }
+}

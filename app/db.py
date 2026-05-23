@@ -246,10 +246,11 @@ def create_job(
     input_path: Path | str,
     job_dir: Path,
     input_key: str = "",
-    separation_mode: str = "fast",
+    separation_mode: str = "quality",
 ) -> dict[str, Any]:
-    if separation_mode not in {"fast", "quality"}:
+    if separation_mode != "quality":
         raise ValueError("Invalid separation mode")
+
 
     now = _now()
     with _connect() as conn:

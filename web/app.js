@@ -12,7 +12,7 @@ const appSection = document.getElementById("appSection");
 const audioFile = document.getElementById("audioFile");
 const youtubeUrl = document.getElementById("youtubeUrl");
 const uploadPanelTitle = document.getElementById("uploadPanelTitle");
-const fastMode = document.getElementById("fastMode");
+
 const processBtn = document.getElementById("processBtn");
 const refreshBtn = document.getElementById("refreshBtn");
 const statusEl = document.getElementById("status");
@@ -49,8 +49,7 @@ const fallbackTranslations = {
     dropFile: "Upload audio or video",
     orDivider: "— OR —",
     process: "Process",
-    fastModeTitle: "Fast mode",
-    fastModeHelp: "Recommended for quick results. Turn off for higher quality.",
+
     chooseFile: "Choose a file or YouTube link.",
     youtubePlaceholder: "https://www.youtube.com/watch?v=...",
     youtubeError: "Please enter a valid YouTube URL first.",
@@ -83,7 +82,7 @@ const fallbackTranslations = {
     queued: (position) =>
       `${position ? `Queue: ${position}. ` : ""}Waiting. You can close this page.`,
     processing: "Processing. You can close this page.",
-    ready: (mode) => `Ready · ${mode === "fast" ? "Fast" : "Quality"}`,
+    ready: () => "Ready",
     failed: "Failed.",
     error: (message) => `Error: ${message}`,
   },
@@ -764,7 +763,7 @@ refreshBtn.addEventListener("click", refreshJobs);
 
 processBtn.addEventListener("click", async () => {
   const formData = new FormData();
-  formData.append("fast_mode", fastMode.checked ? "true" : "false");
+
 
   const file = audioFile.files?.[0];
   const url = youtubeUrl.value?.trim();

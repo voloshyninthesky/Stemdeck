@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mixer</title>
+    <meta name="description" content="Mix vocals and instrumental stems with real-time volume control">
+    <link rel="stylesheet" href="/assets/mixer.css">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+
+<body>
+    <main class="container">
+        <!-- Loading State -->
+        <div id="mixer-loading" class="mixer-loading card">
+            <div class="spinner"></div>
+            <p class="status">Loading stems into memory... please wait...</p>
+        </div>
+
+        <!-- Error State -->
+        <div id="mixer-error" class="mixer-error card danger" style="display: none;">
+            <div class="error-icon">⚠️</div>
+            <p id="error-message" class="status">Something went wrong.</p>
+        </div>
+
+        <!-- Main Content -->
+        <section id="mixer-content" class="player-panel" style="display: none;">
+            <div class="player-header">
+                <p class="eyebrow">Mixer</p>
+                <h2 id="track-name" class="player-title">Track Name</h2>
+            </div>
+
+            <!-- Transport controls -->
+            <div class="controls-row">
+                <button id="play-btn" type="button" class="play-btn">Play</button>
+                <input type="range" id="seek-bar" class="seek-bar" min="0" max="10000" value="0" step="1">
+                <span id="time-display" class="time-display">0:00 / 0:00</span>
+            </div>
+
+            <!-- Mix Grid Channels -->
+            <div class="mix-grid">
+                <!-- Vocals -->
+                <div class="channel-card vocals">
+                    <div class="channel-header">
+                        <h3>🎤 Vocals</h3>
+                        <span id="vocals-value" class="volume-value">100%</span>
+                    </div>
+                    <input type="range" id="vocals-volume" class="volume-slider" min="0" max="100" value="100" step="1">
+                    <button id="vocals-mute" type="button" class="mute-btn secondary">Mute</button>
+                </div>
+
+                <!-- Instrumental -->
+                <div class="channel-card instrumental">
+                    <div class="channel-header">
+                        <h3>🎸 Instrumental</h3>
+                        <span id="inst-value" class="volume-value">100%</span>
+                    </div>
+                    <input type="range" id="inst-volume" class="volume-slider" min="0" max="100" value="100" step="1">
+                    <button id="inst-mute" type="button" class="mute-btn secondary">Mute</button>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="/assets/mixer.js"></script>
+</body>
+
+</html>
