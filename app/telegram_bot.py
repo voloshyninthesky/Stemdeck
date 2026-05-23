@@ -233,14 +233,6 @@ async def _send_results(
     track_name = job.get("original_filename", "Track")
     safe_track_name = _sanitize_filename(track_name)
 
-    # Send vocals as Document (File)
-    vocals_file = open(str(vocals_mp3), "rb")
-    await context.bot.send_document(
-        chat_id=chat_id,
-        document=vocals_file,
-        filename=f"{safe_track_name} - Vocals.mp3",
-    )
-
     # Send instrumental as Document (File)
     inst_file = open(str(inst_mp3), "rb")
     await context.bot.send_document(
