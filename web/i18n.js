@@ -17,8 +17,7 @@ const translations = {
     tabYoutube: "YouTube Link",
     orDivider: "— OR —",
     process: "Process",
-    fastModeTitle: "Fast",
-    fastModeHelp: "Quick result. Turn off for higher quality.",
+
     chooseFile: "Choose a file or YouTube link.",
     youtubeError: "Please enter a valid YouTube URL first.",
     youtubePlaceholder: "https://www.youtube.com/watch?v=...",
@@ -56,7 +55,7 @@ const translations = {
     queued: (position) =>
       `${position ? `Queue: ${position}. ` : ""}Waiting. You can close this page.`,
     processing: "Processing. You can close this page.",
-    ready: (mode) => `Ready · ${mode === "fast" ? "Fast" : "High quality"} mode`,
+    ready: () => "Ready",
     failed: "Processing failed.",
     error: (message) => `Error: ${message}`,
   },
@@ -78,8 +77,7 @@ const translations = {
     tabYoutube: "Посилання YouTube",
     orDivider: "— АБО —",
     process: "Запустити",
-    fastModeTitle: "Швидко",
-    fastModeHelp: "Для швидкого результату. Вимкніть для якості.",
+
     chooseFile: "Оберіть файл або посилання YouTube.",
     youtubeError: "Спочатку введіть коректне посилання YouTube.",
     youtubePlaceholder: "https://www.youtube.com/watch?v=...",
@@ -117,7 +115,7 @@ const translations = {
     queued: (position) =>
       `${position ? `Черга: ${position}. ` : ""}Очікує. Сторінку можна закрити.`,
     processing: "Обробляємо. Сторінку можна закрити.",
-    ready: (mode) => `Готово · ${mode === "fast" ? "Швидко" : "Якісно"}`,
+    ready: () => "Готово",
     failed: "Не вдалося.",
     error: (message) => `Помилка: ${message}`,
   },

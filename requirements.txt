@@ -4,8 +4,7 @@ python-multipart
 celery
 demucs
 soundfile
-sherpa-onnx
-audio-separator[cpu]
 minio
 yt-dlp
 librosa
+python-telegram-bot

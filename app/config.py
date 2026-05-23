@@ -32,42 +32,6 @@ SESSION_COOKIE = "vocals_session"
 SESSION_DAYS = int_env("SESSION_DAYS", 30)
 GUEST_SESSION_HOURS = int_env("GUEST_SESSION_HOURS", 6)
 
-FAST_SEPARATOR_BACKEND = os.getenv("FAST_SEPARATOR_BACKEND", "sherpa_uvr").strip().lower()
-FAST_SEPARATOR_MODEL = os.getenv("FAST_SEPARATOR_MODEL", "UVR-MDX-NET-Voc_FT.onnx")
-FAST_SEPARATOR_MODEL_DIR = Path(
-    os.getenv(
-        "FAST_SEPARATOR_MODEL_DIR",
-        os.getenv("XDG_CACHE_HOME", str(BASE_DIR / "models")),
-    )
-).expanduser()
-FAST_SPLEETER_MODEL_URL = os.getenv(
-    "FAST_SPLEETER_MODEL_URL",
-    "https://github.com/k2-fsa/sherpa-onnx/releases/download/"
-    "source-separation-models/sherpa-onnx-spleeter-2stems-fp16.tar.bz2",
-)
-FAST_SPLEETER_MODEL_DIR = Path(
-    os.getenv(
-        "FAST_SPLEETER_MODEL_DIR",
-        str(Path(os.getenv("XDG_CACHE_HOME", str(BASE_DIR / "models"))) / "spleeter"),
-    )
-).expanduser()
-FAST_SPLEETER_NUM_THREADS = int_env("FAST_SPLEETER_NUM_THREADS", 4)
-FAST_SHERPA_UVR_MODEL = os.getenv("FAST_SHERPA_UVR_MODEL", "UVR-MDX-NET-Inst_HQ_4.onnx")
-FAST_SHERPA_UVR_TARGET_STEM = os.getenv(
-    "FAST_SHERPA_UVR_TARGET_STEM",
-    "instrumental",
-).strip().lower()
-FAST_SHERPA_UVR_MODEL_URL_BASE = os.getenv(
-    "FAST_SHERPA_UVR_MODEL_URL_BASE",
-    "https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models",
-).rstrip("/")
-FAST_SHERPA_UVR_MODEL_DIR = Path(
-    os.getenv(
-        "FAST_SHERPA_UVR_MODEL_DIR",
-        str(Path(os.getenv("XDG_CACHE_HOME", str(BASE_DIR / "models"))) / "sherpa-uvr"),
-    )
-).expanduser()
-FAST_SHERPA_UVR_NUM_THREADS = int_env("FAST_SHERPA_UVR_NUM_THREADS", 4)
 
 STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "local").strip().lower()
 STORAGE_ENDPOINT = os.getenv("STORAGE_ENDPOINT", "").strip()
@@ -75,3 +39,10 @@ STORAGE_ACCESS_KEY = os.getenv("STORAGE_ACCESS_KEY", "stemdeck")
 STORAGE_SECRET_KEY = os.getenv("STORAGE_SECRET_KEY", "stemdeck-secret")
 STORAGE_BUCKET = os.getenv("STORAGE_BUCKET", "stemdeck")
 STORAGE_SECURE = truthy_env("STORAGE_SECURE", False)
+
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_WEBAPP_BASE_URL = os.getenv("TELEGRAM_WEBAPP_BASE_URL", "http://localhost:8000").rstrip("/")
+TELEGRAM_LINK_SECRET = os.getenv(
+    "TELEGRAM_LINK_SECRET",
+    TELEGRAM_BOT_TOKEN or "stemdeck-default-secret",
+)

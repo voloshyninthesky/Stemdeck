@@ -1,0 +1,326 @@
+/* ── Neubrutalist Telegram Mixer.js — Synced Web Audio API playback ── */
+
+(function () {
+  'use strict';
+
+  const params = new URLSearchParams(window.location.search);
+  const JOB_ID = params.get('job_id');
+  const TOKEN = params.get('token');
+
+  if (!JOB_ID) {
+    showError('Missing job ID in URL.');
+    return;
+  }
+
+  // ── DOM Refs ──
+  const loadingEl = document.getElementById('mixer-loading');
+  const errorEl = document.getElementById('mixer-error');
+  const contentEl = document.getElementById('mixer-content');
+  const errorMsgEl = document.getElementById('error-message');
+  const trackNameEl = document.getElementById('track-name');
+
+  const playBtn = document.getElementById('play-btn');
+  const seekBar = document.getElementById('seek-bar');
+  const timeDisplay = document.getElementById('time-display');
+
+  const vocalsSlider = document.getElementById('vocals-volume');
+  const instSlider = document.getElementById('inst-volume');
+  const vocalsValue = document.getElementById('vocals-value');
+  const instValue = document.getElementById('inst-value');
+  const vocalsMute = document.getElementById('vocals-mute');
+  const instMute = document.getElementById('inst-mute');
+
+
+
+  // ── State ──
+  let audioCtx = null;
+  let vocalsBuffer = null;
+  let instBuffer = null;
+  let vocalsSource = null;
+  let instSource = null;
+  let vocalsGain = null;
+  let instGain = null;
+  let isPlaying = false;
+  let startTime = 0;
+  let pauseOffset = 0;
+  let duration = 0;
+  let animFrameId = null;
+
+  let muteState = { vocals: false, instrumental: false };
+  let volumeState = { vocals: 1.0, instrumental: 1.0 };
+
+  // ── Helpers ──
+  function stemUrl(stem) {
+    let url = `/api/jobs/${JOB_ID}/files/${stem}`;
+    if (TOKEN) url += `?token=${encodeURIComponent(TOKEN)}`;
+    return url;
+  }
+
+  function formatTime(s) {
+    if (!isFinite(s)) s = 0;
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, '0')}`;
+  }
+
+  function showError(msg) {
+    if (loadingEl) loadingEl.style.display = 'none';
+    if (contentEl) contentEl.style.display = 'none';
+    if (errorEl) errorEl.style.display = 'flex';
+    if (errorMsgEl) errorMsgEl.textContent = msg;
+  }
+
+  function showContent() {
+    if (loadingEl) loadingEl.style.display = 'none';
+    if (errorEl) errorEl.style.display = 'none';
+    if (contentEl) contentEl.style.display = 'flex';
+  }
+
+  // ── Fetch Job Information ──
+  async function fetchJobInfo() {
+    try {
+      let url = `/api/jobs/${JOB_ID}`;
+      if (TOKEN) url += `?token=${encodeURIComponent(TOKEN)}`;
+      const resp = await fetch(url, { credentials: 'include' });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.job && data.job.filename) {
+          trackNameEl.textContent = data.job.filename;
+        }
+      }
+    } catch (e) {
+      // Non-critical: defaults to "Track Name"
+    }
+  }
+
+  // ── Decode Web Audio Data Safely ──
+  const safeDecodeAudioData = (context, arrayBuffer) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const promise = context.decodeAudioData(arrayBuffer, resolve, reject);
+        if (promise && typeof promise.then === 'function') {
+          promise.then(resolve).catch(reject);
+        }
+      } catch (e) {
+        try {
+          context.decodeAudioData(arrayBuffer, resolve, reject);
+        } catch (err) {
+          reject(err);
+        }
+      }
+    });
+  };
+
+  // ── Load Audio Buffers ──
+  async function loadAudio() {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    const [vocalsResp, instResp] = await Promise.all([
+      fetch(stemUrl('vocals')),
+      fetch(stemUrl('instrumental')),
+    ]);
+
+    if (!vocalsResp.ok || !instResp.ok) {
+      throw new Error('Failed to load audio stems. The link may have expired.');
+    }
+
+    const [vocalsData, instData] = await Promise.all([
+      vocalsResp.arrayBuffer(),
+      instResp.arrayBuffer(),
+    ]);
+
+    [vocalsBuffer, instBuffer] = await Promise.all([
+      safeDecodeAudioData(audioCtx, vocalsData),
+      safeDecodeAudioData(audioCtx, instData),
+    ]);
+
+    duration = Math.max(vocalsBuffer.duration, instBuffer.duration);
+    seekBar.max = Math.floor(duration * 100);
+    timeDisplay.textContent = `0:00 / ${formatTime(duration)}`;
+
+    // Create gain nodes connected to output destination
+    vocalsGain = audioCtx.createGain();
+    instGain = audioCtx.createGain();
+    vocalsGain.connect(audioCtx.destination);
+    instGain.connect(audioCtx.destination);
+
+    // Initial volumes applying track percentages
+    applyVolumes();
+  }
+
+
+  // ── Synced Playback using Web Audio Hardware Scheduling ──
+  function play(offset) {
+    if (offset === undefined) offset = pauseOffset;
+    if (offset >= duration) offset = 0;
+
+    stopSources();
+
+    vocalsSource = audioCtx.createBufferSource();
+    instSource = audioCtx.createBufferSource();
+    vocalsSource.buffer = vocalsBuffer;
+    instSource.buffer = instBuffer;
+
+    vocalsSource.connect(vocalsGain);
+    instSource.connect(instGain);
+
+    // Schedule playback exactly 50ms in the future for perfect sync on mobile WebKit/Safari
+    const playTime = audioCtx.currentTime + 0.05;
+    vocalsSource.start(playTime, offset);
+    instSource.start(playTime, offset);
+
+    startTime = playTime - offset;
+    isPlaying = true;
+
+    playBtn.textContent = 'Pause';
+    playBtn.classList.add('playing');
+
+    vocalsSource.onended = function () {
+      if (isPlaying && getCurrentTime() >= duration - 0.1) {
+        stop();
+        pauseOffset = 0;
+        updateUI();
+      }
+    };
+
+    updateUI();
+  }
+
+  function pause() {
+    if (!isPlaying) return;
+    pauseOffset = getCurrentTime();
+    stopSources();
+    isPlaying = false;
+    playBtn.textContent = 'Play';
+    playBtn.classList.remove('playing');
+    if (animFrameId) {
+      cancelAnimationFrame(animFrameId);
+      animFrameId = null;
+    }
+  }
+
+  function stop() {
+    stopSources();
+    isPlaying = false;
+    playBtn.textContent = 'Play';
+    playBtn.classList.remove('playing');
+    if (animFrameId) {
+      cancelAnimationFrame(animFrameId);
+      animFrameId = null;
+    }
+  }
+
+  function stopSources() {
+    if (vocalsSource) {
+      try {
+        vocalsSource.onended = null;
+        vocalsSource.stop();
+      } catch (e) {}
+      vocalsSource = null;
+    }
+    if (instSource) {
+      try {
+        instSource.onended = null;
+        instSource.stop();
+      } catch (e) {}
+      instSource = null;
+    }
+  }
+
+  function getCurrentTime() {
+    if (!isPlaying) return pauseOffset;
+    return audioCtx.currentTime - startTime;
+  }
+
+  function updateUI() {
+    if (!isPlaying) return;
+
+    const ct = getCurrentTime();
+    seekBar.value = Math.floor(ct * 100);
+    seekBar.style.setProperty('--seek-percent', `${(ct / duration) * 100}%`);
+    timeDisplay.textContent = `${formatTime(ct)} / ${formatTime(duration)}`;
+
+
+
+    animFrameId = requestAnimationFrame(updateUI);
+  }
+
+  // ── Gain node & Neubrutalist volume-percent sliders update ──
+  function applyVolumes() {
+    const vVol = muteState.vocals ? 0 : volumeState.vocals;
+    const iVol = muteState.instrumental ? 0 : volumeState.instrumental;
+
+    vocalsSlider.style.setProperty('--volume-percent', `${vVol * 100}%`);
+    instSlider.style.setProperty('--volume-percent', `${iVol * 100}%`);
+
+    if (vocalsGain) vocalsGain.gain.setValueAtTime(vVol, audioCtx.currentTime);
+    if (instGain) instGain.gain.setValueAtTime(iVol, audioCtx.currentTime);
+  }
+
+  // ── Event Listeners ──
+  playBtn.addEventListener('click', async function () {
+    if (!audioCtx) return;
+    if (audioCtx.state === 'suspended') {
+      await audioCtx.resume();
+    }
+    if (isPlaying) {
+      pause();
+    } else {
+      play();
+    }
+  });
+
+  seekBar.addEventListener('input', function () {
+    const seekTo = parseFloat(seekBar.value) / 100;
+    pauseOffset = seekTo;
+    seekBar.style.setProperty('--seek-percent', `${(seekTo / duration) * 100}%`);
+    timeDisplay.textContent = `${formatTime(seekTo)} / ${formatTime(duration)}`;
+    if (isPlaying) {
+      play(seekTo);
+    }
+  });
+
+
+
+  vocalsSlider.addEventListener('input', function () {
+    const v = parseFloat(vocalsSlider.value) / 100;
+    volumeState.vocals = v;
+    vocalsValue.textContent = `${Math.round(v * 100)}%`;
+    applyVolumes();
+  });
+
+  instSlider.addEventListener('input', function () {
+    const v = parseFloat(instSlider.value) / 100;
+    volumeState.instrumental = v;
+    instValue.textContent = `${Math.round(v * 100)}%`;
+    applyVolumes();
+  });
+
+  vocalsMute.addEventListener('click', function () {
+    muteState.vocals = !muteState.vocals;
+    vocalsMute.classList.toggle('active', muteState.vocals);
+    vocalsMute.textContent = muteState.vocals ? 'Unmute' : 'Mute';
+    applyVolumes();
+  });
+
+  instMute.addEventListener('click', function () {
+    muteState.instrumental = !muteState.instrumental;
+    instMute.classList.toggle('active', muteState.instrumental);
+    instMute.textContent = muteState.instrumental ? 'Unmute' : 'Mute';
+    applyVolumes();
+  });
+
+  // ── Init ──
+  async function init() {
+    try {
+      await fetchJobInfo();
+      await loadAudio();
+      showContent();
+    } catch (err) {
+      console.error('Mixer init error:', err);
+      showError(err.message || 'Failed to load audio stems. The link may have expired.');
+    }
+  }
+
+  init();
+})();

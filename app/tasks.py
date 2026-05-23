@@ -64,7 +64,6 @@ def process_job(job_id: str) -> None:
         )
 
     try:
-        mode = job.get("separation_mode") or "fast"
         input_path_str = job["input_path"]
         job_dir = Path(job["job_dir"])
 
@@ -87,11 +86,38 @@ def process_job(job_id: str) -> None:
             input_path = Path(input_path_str)
 
         report(5, "Your file is processing. You can close this page.")
+
+        # Guard: check audio duration to avoid OOM on very long tracks.
+        # Demucs can be memory-intensive on long audio tracks.
+        MAX_DURATION_MINUTES = 15
+        try:
+            import soundfile as sf
+            wav_path = input_path
+            # If not a wav, we need to convert first — but convert_to_wav happens
+            # inside separate_audio, so just probe the raw input duration with ffprobe.
+            import subprocess
+            probe = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "default=noprint_wrappers=1:nokey=1", str(input_path)],
+                capture_output=True, text=True, timeout=30,
+            )
+            if probe.returncode == 0 and probe.stdout.strip():
+                audio_duration = float(probe.stdout.strip())
+                if audio_duration > MAX_DURATION_MINUTES * 60:
+                    raise RuntimeError(
+                        f"Audio is too long ({audio_duration / 60:.0f} min). "
+                        f"Maximum supported duration is {MAX_DURATION_MINUTES} minutes "
+                        f"to avoid running out of memory."
+                    )
+        except RuntimeError:
+            raise
+        except Exception:
+            pass  # If probe fails, proceed anyway and let separation try
+
         result = separate_audio(
             input_path=input_path,
             job_dir=job_dir,
             report_progress=report,
-            separation_mode=mode,
         )
         instrumental_key = storage.put_file(
             Path(result["instrumental_path"]),

@@ -15,6 +15,3 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
-self.addEventListener("fetch", () => {
-  // Network-only on purpose. Old cached app shells caused stale JS to keep controls inert.
-});
