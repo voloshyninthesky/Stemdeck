@@ -208,23 +208,25 @@ async def _send_results(
         job_dir = Path(job["job_dir"])
         exports = job_dir / "exports"
         exports.mkdir(parents=True, exist_ok=True)
-        vocals_path = exports / "vocals.wav"
+        suffix = ".mp3" if job["vocals_key"].endswith(".mp3") else ".wav"
+        vocals_path = exports / f"vocals{suffix}"
         storage.client().fget_object(config.STORAGE_BUCKET, job["vocals_key"], str(vocals_path))
 
     if not inst_path.exists() and job.get("instrumental_key") and storage.is_object_storage_enabled():
         job_dir = Path(job["job_dir"])
         exports = job_dir / "exports"
         exports.mkdir(parents=True, exist_ok=True)
-        inst_path = exports / "instrumental.wav"
+        suffix = ".mp3" if job["instrumental_key"].endswith(".mp3") else ".wav"
+        inst_path = exports / f"instrumental{suffix}"
         storage.client().fget_object(config.STORAGE_BUCKET, job["instrumental_key"], str(inst_path))
 
-    # Convert to MP3 for compact and native audio Telegram delivery
+    # Convert to MP3 for compact and native audio Telegram delivery (only if it is a legacy WAV file)
     try:
-        vocals_mp3 = convert_wav_to_mp3(vocals_path)
-        inst_mp3 = convert_wav_to_mp3(inst_path)
+        vocals_mp3 = convert_wav_to_mp3(vocals_path) if vocals_path.suffix == ".wav" else vocals_path
+        inst_mp3 = convert_wav_to_mp3(inst_path) if inst_path.suffix == ".wav" else inst_path
     except Exception as exc:
         logger.error("MP3 conversion failed: %s", exc)
-        # Fall back to WAV
+        # Fall back
         vocals_mp3 = vocals_path
         inst_mp3 = inst_path
 

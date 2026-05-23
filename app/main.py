@@ -31,6 +31,7 @@ from app.range_response import parse_byte_range, stream_local_file
 import json
 from app.tasks import process_job
 from app.chords import detect_chords
+from app.processing import convert_wav_to_mp3
 
 
 TOKEN_TTL = 24 * 3600  # 24 hours
@@ -309,6 +310,7 @@ def job_detail(
 def job_file(
     job_id: str,
     stem: str,
+    format: str | None = Query(default=None),
     range_header: str | None = Header(default=None, alias="Range"),
     token: str | None = Query(default=None),
     user: dict[str, Any] | None = Depends(optional_current_user),
@@ -328,37 +330,155 @@ def job_file(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    key = job.get(f"{stem}_key")
-    filename = "instrumental.wav" if stem == "instrumental" else "vocals.wav"
-    if key and storage.is_object_storage_enabled():
-        total_size = storage.object_size(key)
-        start, length, status_code, headers = parse_byte_range(
-            range_header,
-            total_size,
-            filename,
-        )
-        return StreamingResponse(
-            storage.stream_object(key, offset=start, length=length),
-            status_code=status_code,
-            media_type="audio/wav",
-            headers=headers,
-        )
+    # We want static immutable cache for both wav and mp3 files
+    cache_headers = {
+        "Cache-Control": "public, max-age=31536000, immutable"
+    }
 
-    path = Path(job.get(f"{stem}_path") or "")
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="File not found")
-    total_size = path.stat().st_size
-    start, length, status_code, headers = parse_byte_range(
-        range_header,
-        total_size,
-        filename,
-    )
-    return StreamingResponse(
-        stream_local_file(path, start, length),
-        status_code=status_code,
-        media_type="audio/wav",
-        headers=headers,
-    )
+    # Determine paths and keys saved in the database
+    db_path = Path(job.get(f"{stem}_path") or "")
+    db_key = job.get(f"{stem}_key")
+
+    # Check if the job uses pure MP3 storage
+    is_pure_mp3 = (db_path.suffix == ".mp3") or (db_key and db_key.endswith(".mp3"))
+
+    if is_pure_mp3:
+        # ─────────────────────────────────────────────────────────────
+        # New Pure MP3 storage layout - serve MP3 directly
+        # ─────────────────────────────────────────────────────────────
+        media_type = "audio/mpeg"
+        filename = f"{stem}.mp3"
+
+        if db_key and storage.is_object_storage_enabled():
+            total_size = storage.object_size(db_key)
+            start, length, status_code, headers = parse_byte_range(
+                range_header,
+                total_size,
+                filename,
+            )
+            headers.update(cache_headers)
+            return StreamingResponse(
+                storage.stream_object(db_key, offset=start, length=length),
+                status_code=status_code,
+                media_type=media_type,
+                headers=headers,
+            )
+        else:
+            if not db_path or not db_path.exists():
+                raise HTTPException(status_code=404, detail="File not found")
+            total_size = db_path.stat().st_size
+            start, length, status_code, headers = parse_byte_range(
+                range_header,
+                total_size,
+                filename,
+            )
+            headers.update(cache_headers)
+            return StreamingResponse(
+                stream_local_file(db_path, start, length),
+                status_code=status_code,
+                media_type=media_type,
+                headers=headers,
+            )
+
+    else:
+        # ─────────────────────────────────────────────────────────────
+        # Legacy WAV storage layout - serve WAV or convert to MP3 on-demand
+        # ─────────────────────────────────────────────────────────────
+        wav_path = db_path
+        mp3_path = wav_path.with_suffix(".mp3") if wav_path else None
+
+        if format == "mp3":
+            media_type = "audio/mpeg"
+            filename = f"{stem}.mp3"
+
+            if db_key and storage.is_object_storage_enabled():
+                mp3_key = db_key.replace(".wav", ".mp3")
+                mp3_exists = False
+                try:
+                    storage.client().stat_object(config.STORAGE_BUCKET, mp3_key)
+                    mp3_exists = True
+                except Exception:
+                    pass
+
+                if not mp3_exists:
+                    if not wav_path.exists():
+                        wav_path.parent.mkdir(parents=True, exist_ok=True)
+                        storage.client().fget_object(config.STORAGE_BUCKET, db_key, str(wav_path))
+                    actual_mp3_path = convert_wav_to_mp3(wav_path)
+                    storage.put_file(actual_mp3_path, mp3_key)
+
+                total_size = storage.object_size(mp3_key)
+                start, length, status_code, headers = parse_byte_range(
+                    range_header,
+                    total_size,
+                    filename,
+                )
+                headers.update(cache_headers)
+                return StreamingResponse(
+                    storage.stream_object(mp3_key, offset=start, length=length),
+                    status_code=status_code,
+                    media_type=media_type,
+                    headers=headers,
+                )
+
+            else:
+                if not mp3_path or not mp3_path.exists():
+                    if not wav_path or not wav_path.exists():
+                        raise HTTPException(status_code=404, detail="File not found")
+                    actual_mp3_path = convert_wav_to_mp3(wav_path)
+                else:
+                    actual_mp3_path = mp3_path
+
+                total_size = actual_mp3_path.stat().st_size
+                start, length, status_code, headers = parse_byte_range(
+                    range_header,
+                    total_size,
+                    filename,
+                )
+                headers.update(cache_headers)
+                return StreamingResponse(
+                    stream_local_file(actual_mp3_path, start, length),
+                    status_code=status_code,
+                    media_type=media_type,
+                    headers=headers,
+                )
+
+        else:
+            # Default WAV format for legacy layout
+            media_type = "audio/wav"
+            filename = f"{stem}.wav"
+
+            if db_key and storage.is_object_storage_enabled():
+                total_size = storage.object_size(db_key)
+                start, length, status_code, headers = parse_byte_range(
+                    range_header,
+                    total_size,
+                    filename,
+                )
+                headers.update(cache_headers)
+                return StreamingResponse(
+                    storage.stream_object(db_key, offset=start, length=length),
+                    status_code=status_code,
+                    media_type=media_type,
+                    headers=headers,
+                )
+
+            if not wav_path or not wav_path.exists():
+                raise HTTPException(status_code=404, detail="File not found")
+
+            total_size = wav_path.stat().st_size
+            start, length, status_code, headers = parse_byte_range(
+                range_header,
+                total_size,
+                filename,
+            )
+            headers.update(cache_headers)
+            return StreamingResponse(
+                stream_local_file(wav_path, start, length),
+                status_code=status_code,
+                media_type=media_type,
+                headers=headers,
+            )
 
 
 @app.delete("/api/jobs/{job_id}")

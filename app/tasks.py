@@ -6,7 +6,7 @@ from celery import Celery
 
 from app import db
 from app import storage
-from app.processing import separate_audio
+from app.processing import separate_audio, convert_wav_to_mp3
 
 BROKER_URL = os.getenv("CELERY_BROKER_URL", "pyamqp://guest:guest@localhost//")
 RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "rpc://")
@@ -121,11 +121,11 @@ def process_job(job_id: str) -> None:
         )
         instrumental_key = storage.put_file(
             Path(result["instrumental_path"]),
-            f"{job_id}/exports/instrumental.wav",
+            f"{job_id}/exports/instrumental.mp3",
         )
         vocals_key = storage.put_file(
             Path(result["vocals_path"]),
-            f"{job_id}/exports/vocals.wav",
+            f"{job_id}/exports/vocals.mp3",
         )
         db.update_job(
             job_id,

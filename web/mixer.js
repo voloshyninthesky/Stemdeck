@@ -51,8 +51,8 @@
 
   // ── Helpers ──
   function stemUrl(stem) {
-    let url = `/api/jobs/${JOB_ID}/files/${stem}`;
-    if (TOKEN) url += `?token=${encodeURIComponent(TOKEN)}`;
+    let url = `/api/jobs/${JOB_ID}/files/${stem}?format=mp3`;
+    if (TOKEN) url += `&token=${encodeURIComponent(TOKEN)}`;
     return url;
   }
 
