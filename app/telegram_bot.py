@@ -12,8 +12,9 @@ import asyncio
 import logging
 import re
 import sys
+import html
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, Any
 
 from telegram import (
     InlineKeyboardButton,
@@ -115,9 +116,26 @@ def _enqueue_job(job_id: str) -> None:
         thread.start()
 
 
-async def _poll_job(status_msg, job_id: str, user_id: int, timeout: int = 600) -> dict:
+def _translate_detail(detail: str, lang: str) -> str:
+    """Translate dynamic task logging details into Ukrainian if language matches."""
+    if lang != "uk":
+        return detail
+    translations = {
+        "Downloading audio from YouTube": "Завантаження аудіо з YouTube",
+        "Your file is processing. You can close this page.": "Ваш файл обробляється. Ви можете закрити цю сторінку.",
+        "Converting to WAV": "Конвертація у WAV",
+        "Running Demucs quality separation": "Запуск високоякісного розділення Demucs",
+        "Uploading vocals to storage": "Завантаження вокалу у сховище",
+        "Uploading instrumental to storage": "Завантаження інструменталу у сховище",
+        "Uploading stems to storage": "Завантаження розділених треків у сховище",
+        "Ready": "Готово",
+        "Failed": "Помилка обробки",
+    }
+    return translations.get(detail, detail)
+
+
+async def _poll_job(status_msg, job_id: str, user_id: int, timeout: int = 600, lang: str = "en") -> dict:
     """Poll the DB until the job is done or failed, updating the Telegram status message."""
-    import html
     elapsed = 0
     interval = 3
     last_text = ""
@@ -130,19 +148,33 @@ async def _poll_job(status_msg, job_id: str, user_id: int, timeout: int = 600) -
         if job["status"] == "done":
             return job
         if job["status"] == "failed":
-            raise RuntimeError(job.get("error") or "Separation failed")
+            error_msg = job.get("error") or "Separation failed"
+            if lang == "uk":
+                error_msg = "Помилка розділення"
+            raise RuntimeError(error_msg)
 
         # Format status message using HTML
         if job["status"] == "queued":
             pos = db.queue_position(job_id)
-            pos_text = f" (Position in queue: #{pos})" if pos else ""
-            text = f"⏳ <b>Waiting in queue…</b>{pos_text}"
+            if lang == "uk":
+                pos_text = f" (Позиція в черзі: #{pos})" if pos else ""
+                text = f"⏳ <b>Очікування в черзі…</b>{pos_text}"
+            else:
+                pos_text = f" (Position in queue: #{pos})" if pos else ""
+                text = f"⏳ <b>Waiting in queue…</b>{pos_text}"
         else: # processing
-            detail = html.escape(job.get("message", "Processing..."))
-            text = (
-                f"🎶 <b>Separating audio…</b>\n\n"
-                f"⏳ <i>{detail}… Please wait.</i>"
-            )
+            detail_raw = job.get("message", "Processing...")
+            detail = html.escape(_translate_detail(detail_raw, lang))
+            if lang == "uk":
+                text = (
+                    f"🎶 <b>Розділення аудіо…</b>\n\n"
+                    f"⏳ <i>{detail}… Будь ласка, зачекайте.</i>"
+                )
+            else:
+                text = (
+                    f"🎶 <b>Separating audio…</b>\n\n"
+                    f"⏳ <i>{detail}… Please wait.</i>"
+                )
 
         if text != last_text:
             try:
@@ -154,13 +186,14 @@ async def _poll_job(status_msg, job_id: str, user_id: int, timeout: int = 600) -
         # Increase interval after a while to reduce DB load
         if elapsed > 30:
             interval = 5
-    raise RuntimeError("Processing timed out after 10 minutes")
+    raise RuntimeError("Processing timed out after 10 minutes" if lang != "uk" else "Час очікування обробки вичерпано (10 хвилин)")
 
 
 async def _send_results(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
     job: dict,
+    lang: str = "en",
 ) -> None:
     """Send the separated stems and the mixer button."""
     chat_id = update.effective_chat.id
@@ -216,17 +249,23 @@ async def _send_results(
 
     # Send mixer button
     mixer_url = _build_mixer_url(job["id"])
+    button_label = "🎛 Відкрити мікшер" if lang == "uk" else "🎛 Open Mixer"
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton(
-            "🎛 Open Mixer",
+            button_label,
             web_app=WebAppInfo(url=mixer_url),
         )]
     ])
-    safe_track_name = escape_markdown(track_name, version=2)
+    safe_track_name_markdown = escape_markdown(track_name, version=2)
+
+    if lang == "uk":
+        complete_text = f"✅ *{safe_track_name_markdown}* — розділення завершено\\!\n\nСкористайтеся мікшером, щоб налаштувати баланс вокалу та інструменталу за допомогою повзунків гучності\\."
+    else:
+        complete_text = f"✅ *{safe_track_name_markdown}* — separation complete\\!\n\nUse the mixer to blend vocals and instrumental with volume controls\\."
 
     await context.bot.send_message(
         chat_id=chat_id,
-        text=f"✅ *{safe_track_name}* — separation complete\\!\n\nUse the mixer to blend vocals and instrumental with volume controls\\.",
+        text=complete_text,
         parse_mode="MarkdownV2",
         reply_markup=keyboard,
     )
@@ -237,13 +276,27 @@ async def _send_results(
 # ──────────────────────────────────────────────
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    lang = "uk" if update.effective_user and update.effective_user.language_code and update.effective_user.language_code.startswith("uk") else "en"
+    if lang == "uk":
+        text = (
+            "🎵 *Ласкаво просимо до Stemdeck\\!*\n\n"
+            "Надішліть мені:\n"
+            "• Аудіофайл \\(MP3, WAV, FLAC, OGG тощо\\)\n"
+            "• Посилання на YouTube\n\n"
+            "Я розділю його на *вокал* та *інструментал*, "
+            "і надам мікшер для їхнього змішування\\! 🎛"
+        )
+    else:
+        text = (
+            "🎵 *Welcome to Stemdeck\\!*\n\n"
+            "Send me:\n"
+            "• An audio file \\(MP3, WAV, FLAC, OGG, etc\\.\\)\n"
+            "• A YouTube link\n\n"
+            "I'll separate it into *vocals* and *instrumental* tracks, "
+            "and give you a mixer to blend them\\! 🎛"
+        )
     await update.message.reply_text(
-        "🎵 *Welcome to Stemdeck\\!*\n\n"
-        "Send me:\n"
-        "• An audio file \\(MP3, WAV, FLAC, OGG, etc\\.\\)\n"
-        "• A YouTube link\n\n"
-        "I'll separate it into *vocals* and *instrumental* tracks, "
-        "and give you a mixer to blend them\\! 🎛",
+        text,
         parse_mode="MarkdownV2",
     )
 
@@ -252,6 +305,7 @@ async def audio_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     """Handle audio files, voice messages, and documents with audio extensions."""
     message = update.message
     chat_id = message.chat_id
+    lang = "uk" if update.effective_user and update.effective_user.language_code and update.effective_user.language_code.startswith("uk") else "en"
 
     # Determine the file to download
     if message.audio:
@@ -266,11 +320,12 @@ async def audio_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         doc = message.document
         ext = Path(doc.file_name or "").suffix.lower()
         if ext not in ALLOWED_EXTENSIONS:
-            await message.reply_text(
-                f"❌ Unsupported file type `{ext}`.\n"
-                f"Supported: {', '.join(sorted(ALLOWED_EXTENSIONS))}",
-                parse_mode="Markdown",
-            )
+            supported = ", ".join(sorted(ALLOWED_EXTENSIONS))
+            if lang == "uk":
+                err_text = f"❌ Непідтримуваний тип файлу `{ext}`.\nПідтримуються: {supported}"
+            else:
+                err_text = f"❌ Unsupported file type `{ext}`.\nSupported: {supported}"
+            await message.reply_text(err_text, parse_mode="Markdown")
             return
         file_id = doc.file_id
         file_name = doc.file_name or "file"
@@ -283,13 +338,21 @@ async def audio_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     if file_size > MAX_TELEGRAM_FILE_SIZE:
-        await message.reply_text(
-            "❌ File is too large. Telegram allows bots to download files up to 20 MB.\n"
-            "Please use a YouTube link instead, or compress the file."
-        )
+        if lang == "uk":
+            err_size = (
+                "❌ Файл занадто великий. Telegram дозволяє ботам завантажувати файли лише до 20 МБ.\n"
+                "Будь ласка, надішліть посилання на YouTube або стисніть файл."
+            )
+        else:
+            err_size = (
+                "❌ File is too large. Telegram allows bots to download files up to 20 MB.\n"
+                "Please use a YouTube link instead, or compress the file."
+            )
+        await message.reply_text(err_size)
         return
 
-    status_msg = await message.reply_text("⏳ Downloading your file…")
+    status_text = "⏳ Завантажую ваш файл…" if lang == "uk" else "⏳ Downloading your file…"
+    status_msg = await message.reply_text(status_text)
 
     try:
         db.init_db()
@@ -318,19 +381,21 @@ async def audio_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             separation_mode="quality",
         )
 
-        await status_msg.edit_text("🎶 Separating vocals and instrumental… This may take a minute.")
+        separating_text = "🎶 Розділяю вокал та інструментал… Це може зайняти кілька хвилин." if lang == "uk" else "🎶 Separating vocals and instrumental… This may take a few minutes."
+        await status_msg.edit_text(separating_text)
         _enqueue_job(job_id)
 
-        done_job = await _poll_job(status_msg, job_id, user["id"])
+        done_job = await _poll_job(status_msg, job_id, user["id"], lang=lang)
         await status_msg.delete()
-        await _send_results(update, context, done_job)
+        await _send_results(update, context, done_job, lang=lang)
 
     except Exception as exc:
         logger.exception("Audio processing failed for chat %s", chat_id)
+        fail_text = "❌ Обробка файлу завершилась помилкою" if lang == "uk" else f"❌ Processing failed: {exc}"
         try:
-            await status_msg.edit_text(f"❌ Processing failed: {exc}")
+            await status_msg.edit_text(fail_text)
         except Exception:
-            await message.reply_text(f"❌ Processing failed: {exc}")
+            await message.reply_text(fail_text)
 
 
 async def youtube_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -338,6 +403,7 @@ async def youtube_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     message = update.message
     chat_id = message.chat_id
     text = message.text or ""
+    lang = "uk" if update.effective_user and update.effective_user.language_code and update.effective_user.language_code.startswith("uk") else "en"
 
     match = YOUTUBE_RE.search(text)
     if not match:
@@ -347,7 +413,8 @@ async def youtube_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if not url.startswith("http"):
         url = "https://" + url
 
-    status_msg = await message.reply_text("⏳ Downloading from YouTube…")
+    status_text = "⏳ Завантажую з YouTube…" if lang == "uk" else "⏳ Downloading from YouTube…"
+    status_msg = await message.reply_text(status_text)
 
     try:
         db.init_db()
@@ -368,36 +435,48 @@ async def youtube_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             separation_mode="quality",
         )
 
-        await status_msg.edit_text("🎶 Downloading & separating… This may take a few minutes.")
+        separating_text = "🎶 Завантажую та розділяю… Це може зайняти кілька хвилин." if lang == "uk" else "🎶 Downloading & separating… This may take a few minutes."
+        await status_msg.edit_text(separating_text)
         _enqueue_job(job_id)
 
-        done_job = await _poll_job(status_msg, job_id, user["id"])
+        done_job = await _poll_job(status_msg, job_id, user["id"], lang=lang)
         await status_msg.delete()
-        await _send_results(update, context, done_job)
+        await _send_results(update, context, done_job, lang=lang)
 
     except Exception as exc:
         logger.exception("YouTube processing failed for chat %s", chat_id)
+        fail_text = "❌ Обробка файлу завершилась помилкою" if lang == "uk" else f"❌ Processing failed: {exc}"
         try:
-            await status_msg.edit_text(f"❌ Processing failed: {exc}")
+            await status_msg.edit_text(fail_text)
         except Exception:
-            await message.reply_text(f"❌ Processing failed: {exc}")
+            await message.reply_text(fail_text)
 
 
 async def unknown_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle unrecognized text messages."""
-    text = (update.message.text or "").strip()
-    if not text:
+    text_raw = (update.message.text or "").strip()
+    if not text_raw:
         return
 
     # Don't respond to YouTube links (handled by youtube_handler)
-    if YOUTUBE_RE.search(text):
+    if YOUTUBE_RE.search(text_raw):
         return
 
-    await update.message.reply_text(
-        "🤔 I didn't understand that.\n\n"
-        "Send me an audio file or a YouTube link, "
-        "and I'll separate it into vocal and instrumental tracks!"
-    )
+    lang = "uk" if update.effective_user and update.effective_user.language_code and update.effective_user.language_code.startswith("uk") else "en"
+    if lang == "uk":
+        reply = (
+            "🤔 Я не зрозумів цього повідомлення.\n\n"
+            "Надішліть мені аудіофайл або посилання на YouTube, "
+            "і я розділю його на вокал та інструментал!"
+        )
+    else:
+        reply = (
+            "🤔 I didn't understand that.\n\n"
+            "Send me an audio file or a YouTube link, "
+            "and I'll separate it into vocal and instrumental tracks!"
+        )
+
+    await update.message.reply_text(reply)
 
 
 # ──────────────────────────────────────────────
@@ -413,7 +492,7 @@ def main() -> None:
     db.init_db()
     storage.ensure_bucket()
 
-    app = ApplicationBuilder().token(token).build()
+    app = ApplicationBuilder().token(token).concurrent_updates(True).build()
 
     app.add_handler(CommandHandler("start", start_handler))
     app.add_handler(CommandHandler("help", start_handler))
