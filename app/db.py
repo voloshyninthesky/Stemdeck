@@ -366,3 +366,14 @@ def delete_job(job_id: str, user_id: int) -> dict[str, Any] | None:
         conn.execute("DELETE FROM jobs WHERE id = ? AND user_id = ?", (job_id, user_id))
 
     return job
+
+
+def count_user_jobs_since(user_id: int, minutes: int = 5) -> int:
+    cutoff = (datetime.now(UTC) - timedelta(minutes=minutes)).isoformat()
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM jobs WHERE user_id = ? AND created_at >= ?",
+            (user_id, cutoff),
+        ).fetchone()
+    return int(row["cnt"]) if row else 0
+

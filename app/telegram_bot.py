@@ -279,7 +279,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     lang = "uk" if update.effective_user and update.effective_user.language_code and update.effective_user.language_code.startswith("uk") else "en"
     if lang == "uk":
         text = (
-            "🎵 *Ласкаво просимо до Stemdeck\\!*\n\n"
+            "🎵 *Ласкаво просимо до Stepan Audio\\!*\n\n"
             "Надішліть мені:\n"
             "• Аудіофайл \\(MP3, WAV, FLAC, OGG тощо\\)\n"
             "• Посилання на YouTube\n\n"
@@ -288,7 +288,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
     else:
         text = (
-            "🎵 *Welcome to Stemdeck\\!*\n\n"
+            "🎵 *Welcome to Stepan Audio\\!*\n\n"
             "Send me:\n"
             "• An audio file \\(MP3, WAV, FLAC, OGG, etc\\.\\)\n"
             "• A YouTube link\n\n"
@@ -357,6 +357,21 @@ async def audio_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     try:
         db.init_db()
         user = _get_or_create_user(chat_id)
+
+        # Check rate limit: 2 separations per 5 minutes
+        job_count = db.count_user_jobs_since(user["id"], minutes=5)
+        if job_count >= 2:
+            if lang == "uk":
+                await status_msg.edit_text(
+                    "❌ Досягнуто ліміту запитів: дозволено не більше 2 розділень на 5 хвилин.\n"
+                    "Будь ласка, зачекайте кілька хвилин перед наступною спробою."
+                )
+            else:
+                await status_msg.edit_text(
+                    "❌ Rate limit exceeded: maximum 2 separations per 5 minutes are allowed.\n"
+                    "Please wait a few minutes before trying again."
+                )
+            return
         import uuid
         job_id = str(uuid.uuid4())
         job_dir = config.JOBS_DIR / job_id
@@ -419,6 +434,21 @@ async def youtube_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     try:
         db.init_db()
         user = _get_or_create_user(chat_id)
+
+        # Check rate limit: 2 separations per 5 minutes
+        job_count = db.count_user_jobs_since(user["id"], minutes=5)
+        if job_count >= 2:
+            if lang == "uk":
+                await status_msg.edit_text(
+                    "❌ Досягнуто ліміту запитів: дозволено не більше 2 розділень на 5 хвилин.\n"
+                    "Будь ласка, зачекайте кілька хвилин перед наступною спробою."
+                )
+            else:
+                await status_msg.edit_text(
+                    "❌ Rate limit exceeded: maximum 2 separations per 5 minutes are allowed.\n"
+                    "Please wait a few minutes before trying again."
+                )
+            return
         import uuid
         job_id = str(uuid.uuid4())
         job_dir = config.JOBS_DIR / job_id
