@@ -251,11 +251,7 @@ async def _send_results(
         )]
     ])
     safe_track_name_markdown = escape_markdown(track_name, version=2)
-
-    if lang == "uk":
-        complete_text = f"✅ *{safe_track_name_markdown}* — розділення завершено\\!\n\nСкористайтеся мікшером, щоб налаштувати баланс вокалу та інструменталу за допомогою повзунків гучності\\."
-    else:
-        complete_text = f"✅ *{safe_track_name_markdown}* — separation complete\\!\n\nUse the mixer to blend vocals and instrumental with volume controls\\."
+    complete_text = f"🎶 *{safe_track_name_markdown}*"
 
     await context.bot.send_message(
         chat_id=chat_id,
