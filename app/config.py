@@ -46,3 +46,8 @@ TELEGRAM_LINK_SECRET = os.getenv(
     "TELEGRAM_LINK_SECRET",
     TELEGRAM_BOT_TOKEN or "stemdeck-default-secret",
 )
+
+# Demucs separation: "local" (default) or "replicate" (cjwbw/demucs on Replicate, with local fallback).
+DEMUCS_BACKEND = os.getenv("DEMUCS_BACKEND", "local").strip().lower()
+REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN", "").strip()
+REPLICATE_DEMUCS_MODEL = os.getenv("REPLICATE_DEMUCS_MODEL", "cjwbw/demucs").strip()
