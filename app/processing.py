@@ -104,7 +104,7 @@ def separate_audio_replicate(
 ) -> dict[str, str | float]:
     import replicate
 
-    report_progress(40, "Separating vocals (cloud)")
+    report_progress(40, "Separating vocals")
 
     client = replicate.Client(api_token=config.REPLICATE_API_TOKEN)
     with audio_wav.open("rb") as audio_file:
@@ -119,7 +119,7 @@ def separate_audio_replicate(
             },
         )
 
-    report_progress(80, "Downloading separated stems")
+    report_progress(80, "Saving stems")
 
     vocals_value = _output_value(output, "vocals")
     instrumental_value = (
@@ -223,7 +223,7 @@ def separate_audio(
                     exc,
                     exc_info=True,
                 )
-                report_progress(30, "Separating vocals (local fallback)")
+                report_progress(30, "Separating vocals")
         else:
             logger.warning(
                 "DEMUCS_BACKEND=replicate but REPLICATE_API_TOKEN is unset; using local model"

@@ -50,4 +50,9 @@ TELEGRAM_LINK_SECRET = os.getenv(
 # Demucs separation: "local" (default) or "replicate" (cjwbw/demucs on Replicate, with local fallback).
 DEMUCS_BACKEND = os.getenv("DEMUCS_BACKEND", "local").strip().lower()
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN", "").strip()
-REPLICATE_DEMUCS_MODEL = os.getenv("REPLICATE_DEMUCS_MODEL", "cjwbw/demucs").strip()
+# Community models on Replicate must be referenced with a pinned version hash
+# ("owner/model:version"); the bare "owner/model" form 404s on client.run().
+REPLICATE_DEMUCS_MODEL = os.getenv(
+    "REPLICATE_DEMUCS_MODEL",
+    "cjwbw/demucs:25a173108cff36ef9f80f854c162d01df9e6528be175794b81158fa03836d953",
+).strip()
