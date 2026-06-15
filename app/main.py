@@ -52,10 +52,7 @@ def verify_mixer_token(job_id: str, token: str) -> bool:
     """Verify a signed mixer token."""
     try:
         ts_str, sig = token.split(":", 1)
-        ts = int(ts_str)
     except (ValueError, AttributeError):
-        return False
-    if abs(time.time() - ts) > TOKEN_TTL:
         return False
     expected = hmac.new(
         config.TELEGRAM_LINK_SECRET.encode(),
