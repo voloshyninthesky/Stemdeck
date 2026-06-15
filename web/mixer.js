@@ -1,4 +1,4 @@
-/* ── Neubrutalist Telegram Mixer.js — progressive streaming + synced playback ── */
+/* ── Neubrutalist Telegram Mixer.js — Synced Web Audio API playback ── */
 
 (function () {
   'use strict';
@@ -41,23 +41,26 @@
   const instMute = document.getElementById('inst-mute');
 
   // ── State ──
-  // We stream the stems through two <audio> elements (progressive download +
-  // native range requests) and route them through Web Audio gain nodes for
-  // per-stem volume/mute. This lets playback begin after a small buffer
-  // instead of waiting for the full files to download and decode.
+  // Both stems are fully downloaded and decoded into AudioBuffers, then played
+  // back through AudioBufferSourceNodes scheduled on the same hardware clock.
+  // This guarantees sample-accurate sync (no drift correction required).
   let audioCtx = null;
-  let vocalsEl = null;
-  let instEl = null;
+  let vocalsArrayBuffer = null;
+  let instArrayBuffer = null;
+  let vocalsBuffer = null;
+  let instBuffer = null;
+  let vocalsSource = null;
+  let instSource = null;
   let vocalsGain = null;
   let instGain = null;
-  let graphBuilt = false;
+  let downloadPromise = null;
+  let decoded = false;
+  let decodePromise = null;
   let isPlaying = false;
+  let startTime = 0;
+  let pauseOffset = 0;
   let duration = 0;
   let animFrameId = null;
-  let driftTimer = null;
-
-  // instEl is the master clock; vocalsEl is nudged to follow it.
-  const DRIFT_THRESHOLD = 0.08; // seconds
 
   let muteState = { vocals: false, instrumental: false };
   let volumeState = { vocals: 1.0, instrumental: 1.0 };
@@ -103,7 +106,7 @@
     if (!isFinite(value) || value <= 0) return;
     duration = value;
     seekBar.max = Math.floor(duration * 100);
-    timeDisplay.textContent = `${formatTime(getCurrentTime())} / ${formatTime(duration)}`;
+    timeDisplay.textContent = `${formatTime(pauseOffset)} / ${formatTime(duration)}`;
   }
 
   // ── Fetch Job Information ──
@@ -117,7 +120,7 @@
         if (data.job && data.job.filename) {
           trackNameEl.textContent = data.job.filename;
         }
-        // Duration from metadata lets the seek bar work before buffering.
+        // Duration from metadata lets the seek bar render before decoding.
         if (data.job && data.job.duration) {
           setDuration(Number(data.job.duration));
         }
@@ -127,108 +130,130 @@
     }
   }
 
-  // ── Create streaming <audio> elements ──
-  function createAudioElements() {
-    vocalsEl = new Audio();
-    instEl = new Audio();
-    for (const el of [vocalsEl, instEl]) {
-      el.preload = 'auto';
-      el.playsInline = true;
-      el.setAttribute('playsinline', '');
-    }
-    vocalsEl.src = stemUrl('vocals');
-    instEl.src = stemUrl('instrumental');
-
-    // Prefer the real media duration once known.
-    instEl.addEventListener('loadedmetadata', function () {
-      if (isFinite(instEl.duration) && instEl.duration > 0) {
-        setDuration(Math.max(duration, instEl.duration));
+  // ── Decode Web Audio Data Safely ──
+  const safeDecodeAudioData = (context, arrayBuffer) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const promise = context.decodeAudioData(arrayBuffer, resolve, reject);
+        if (promise && typeof promise.then === 'function') {
+          promise.then(resolve).catch(reject);
+        }
+      } catch (e) {
+        try {
+          context.decodeAudioData(arrayBuffer, resolve, reject);
+        } catch (err) {
+          reject(err);
+        }
       }
     });
+  };
 
-    instEl.addEventListener('ended', function () {
-      stop();
-      seekTo(0);
-      updateOnce();
-    });
+  // ── Download both stems in full (parallel) ──
+  function loadAudioBytes() {
+    if (downloadPromise) return downloadPromise;
+    downloadPromise = (async () => {
+      const [vocalsResp, instResp] = await Promise.all([
+        withTimeout(fetch(stemUrl('vocals')), 60000, 'Timed out loading vocals.'),
+        withTimeout(fetch(stemUrl('instrumental')), 60000, 'Timed out loading instrumental.'),
+      ]);
 
-    const onError = function () {
-      showError('Failed to load audio stems. The link may have expired.');
-    };
-    vocalsEl.addEventListener('error', onError);
-    instEl.addEventListener('error', onError);
+      if (!vocalsResp.ok || !instResp.ok) {
+        throw new Error('Failed to load audio stems. The link may have expired.');
+      }
 
-    // Kick off buffering immediately.
-    vocalsEl.load();
-    instEl.load();
+      [vocalsArrayBuffer, instArrayBuffer] = await Promise.all([
+        vocalsResp.arrayBuffer(),
+        instResp.arrayBuffer(),
+      ]);
+    })();
+    return downloadPromise;
   }
 
-  // ── Build Web Audio graph (must run inside a user gesture on iOS) ──
-  function buildGraph() {
-    if (graphBuilt) return;
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  // ── Decode + wire up audio graph (runs inside the first user gesture) ──
+  async function ensureReady() {
+    if (decoded) return;
+    if (decodePromise) return decodePromise;
 
-    const vSrc = audioCtx.createMediaElementSource(vocalsEl);
-    const iSrc = audioCtx.createMediaElementSource(instEl);
-    vocalsGain = audioCtx.createGain();
-    instGain = audioCtx.createGain();
-    vSrc.connect(vocalsGain).connect(audioCtx.destination);
-    iSrc.connect(instGain).connect(audioCtx.destination);
+    decodePromise = (async () => {
+      await loadAudioBytes();
 
-    graphBuilt = true;
-    applyVolumes();
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      // Must run inside a user gesture on iOS / Telegram WebView.
+      if (audioCtx.state === 'suspended') {
+        try { await audioCtx.resume(); } catch (e) { /* best effort */ }
+      }
+
+      // decodeAudioData detaches the ArrayBuffer, so decode from copies to
+      // keep the originals available for a potential retry.
+      [vocalsBuffer, instBuffer] = await withTimeout(
+        Promise.all([
+          safeDecodeAudioData(audioCtx, vocalsArrayBuffer.slice(0)),
+          safeDecodeAudioData(audioCtx, instArrayBuffer.slice(0)),
+        ]),
+        30000,
+        'Timed out decoding audio.'
+      );
+
+      setDuration(Math.max(vocalsBuffer.duration, instBuffer.duration));
+
+      vocalsGain = audioCtx.createGain();
+      instGain = audioCtx.createGain();
+      vocalsGain.connect(audioCtx.destination);
+      instGain.connect(audioCtx.destination);
+
+      applyVolumes();
+      decoded = true;
+    })();
+
+    return decodePromise;
   }
 
-  // ── Wait until both elements can play through enough to start ──
-  function waitUntilPlayable() {
-    const ready = (el) => el.readyState >= 3; // HAVE_FUTURE_DATA
-    if (ready(vocalsEl) && ready(instEl)) return Promise.resolve();
+  // ── Synced Playback using Web Audio Hardware Scheduling ──
+  function play(offset) {
+    if (offset === undefined) offset = pauseOffset;
+    if (offset >= duration) offset = 0;
 
-    return withTimeout(
-      new Promise((resolve) => {
-        const check = () => {
-          if (ready(vocalsEl) && ready(instEl)) {
-            vocalsEl.removeEventListener('canplay', check);
-            instEl.removeEventListener('canplay', check);
-            resolve();
-          }
-        };
-        vocalsEl.addEventListener('canplay', check);
-        instEl.addEventListener('canplay', check);
-        check();
-      }),
-      30000,
-      'Timed out buffering audio.'
-    );
-  }
+    stopSources();
 
-  // ── Playback ──
-  async function play() {
-    if (getCurrentTime() >= duration - 0.05) {
-      seekTo(0);
-    }
+    vocalsSource = audioCtx.createBufferSource();
+    instSource = audioCtx.createBufferSource();
+    vocalsSource.buffer = vocalsBuffer;
+    instSource.buffer = instBuffer;
 
-    // Align the follower to the master before starting.
-    try { vocalsEl.currentTime = instEl.currentTime; } catch (e) {}
+    vocalsSource.connect(vocalsGain);
+    instSource.connect(instGain);
 
-    await Promise.all([instEl.play(), vocalsEl.play()]);
+    // Schedule playback exactly 50ms in the future for perfect sync on mobile WebKit/Safari
+    const playTime = audioCtx.currentTime + 0.05;
+    vocalsSource.start(playTime, offset);
+    instSource.start(playTime, offset);
 
+    startTime = playTime - offset;
     isPlaying = true;
+
     playBtn.textContent = 'Pause';
     playBtn.classList.add('playing');
 
-    startDriftCorrection();
+    vocalsSource.onended = function () {
+      if (isPlaying && getCurrentTime() >= duration - 0.1) {
+        stop();
+        pauseOffset = 0;
+        updateUI();
+      }
+    };
+
     updateUI();
   }
 
   function pause() {
     if (!isPlaying) return;
-    instEl.pause();
-    vocalsEl.pause();
+    pauseOffset = getCurrentTime();
+    stopSources();
     isPlaying = false;
     playBtn.textContent = 'Play';
     playBtn.classList.remove('playing');
-    stopDriftCorrection();
     if (animFrameId) {
       cancelAnimationFrame(animFrameId);
       animFrameId = null;
@@ -236,57 +261,46 @@
   }
 
   function stop() {
-    if (instEl) instEl.pause();
-    if (vocalsEl) vocalsEl.pause();
+    stopSources();
     isPlaying = false;
     playBtn.textContent = 'Play';
     playBtn.classList.remove('playing');
-    stopDriftCorrection();
     if (animFrameId) {
       cancelAnimationFrame(animFrameId);
       animFrameId = null;
     }
   }
 
-  function seekTo(t) {
-    const clamped = Math.max(0, Math.min(t, duration || t));
-    try { instEl.currentTime = clamped; } catch (e) {}
-    try { vocalsEl.currentTime = clamped; } catch (e) {}
-  }
-
-  function getCurrentTime() {
-    return instEl ? instEl.currentTime : 0;
-  }
-
-  // ── Drift correction: keep vocals locked to the instrumental clock ──
-  function startDriftCorrection() {
-    stopDriftCorrection();
-    driftTimer = setInterval(function () {
-      if (!isPlaying) return;
-      const drift = Math.abs(vocalsEl.currentTime - instEl.currentTime);
-      if (drift > DRIFT_THRESHOLD) {
-        try { vocalsEl.currentTime = instEl.currentTime; } catch (e) {}
-      }
-    }, 500);
-  }
-
-  function stopDriftCorrection() {
-    if (driftTimer) {
-      clearInterval(driftTimer);
-      driftTimer = null;
+  function stopSources() {
+    if (vocalsSource) {
+      try {
+        vocalsSource.onended = null;
+        vocalsSource.stop();
+      } catch (e) {}
+      vocalsSource = null;
+    }
+    if (instSource) {
+      try {
+        instSource.onended = null;
+        instSource.stop();
+      } catch (e) {}
+      instSource = null;
     }
   }
 
-  function updateOnce() {
-    const ct = getCurrentTime();
-    seekBar.value = Math.floor(ct * 100);
-    seekBar.style.setProperty('--seek-percent', `${duration ? (ct / duration) * 100 : 0}%`);
-    timeDisplay.textContent = `${formatTime(ct)} / ${formatTime(duration)}`;
+  function getCurrentTime() {
+    if (!isPlaying) return pauseOffset;
+    return audioCtx.currentTime - startTime;
   }
 
   function updateUI() {
     if (!isPlaying) return;
-    updateOnce();
+
+    const ct = getCurrentTime();
+    seekBar.value = Math.floor(ct * 100);
+    seekBar.style.setProperty('--seek-percent', `${(ct / duration) * 100}%`);
+    timeDisplay.textContent = `${formatTime(ct)} / ${formatTime(duration)}`;
+
     animFrameId = requestAnimationFrame(updateUI);
   }
 
@@ -309,32 +323,35 @@
       return;
     }
 
-    playBtn.disabled = true;
-    const prevLabel = playBtn.textContent;
-    playBtn.textContent = 'Loading...';
-    try {
-      buildGraph();
-      if (audioCtx.state === 'suspended') {
-        try { await audioCtx.resume(); } catch (e) {}
+    // Decode lazily on the first tap so it happens within a user gesture.
+    if (!decoded) {
+      playBtn.disabled = true;
+      playBtn.textContent = 'Loading...';
+      try {
+        await ensureReady();
+      } catch (err) {
+        console.error('Mixer decode error:', err);
+        playBtn.disabled = false;
+        playBtn.textContent = 'Play';
+        showError(err.message || 'Failed to load audio stems.');
+        return;
       }
-      await waitUntilPlayable();
-      await play();
-    } catch (err) {
-      console.error('Mixer play error:', err);
-      playBtn.textContent = prevLabel;
-      showError(err.message || 'Failed to play audio stems.');
       playBtn.disabled = false;
-      return;
     }
-    playBtn.disabled = false;
+
+    if (audioCtx && audioCtx.state === 'suspended') {
+      try { await audioCtx.resume(); } catch (e) {}
+    }
+    play();
   });
 
   seekBar.addEventListener('input', function () {
-    const seekToVal = parseFloat(seekBar.value) / 100;
-    seekBar.style.setProperty('--seek-percent', `${duration ? (seekToVal / duration) * 100 : 0}%`);
-    timeDisplay.textContent = `${formatTime(seekToVal)} / ${formatTime(duration)}`;
-    if (graphBuilt) {
-      seekTo(seekToVal);
+    const seekTo = parseFloat(seekBar.value) / 100;
+    pauseOffset = seekTo;
+    seekBar.style.setProperty('--seek-percent', `${(seekTo / duration) * 100}%`);
+    timeDisplay.textContent = `${formatTime(seekTo)} / ${formatTime(duration)}`;
+    if (isPlaying) {
+      play(seekTo);
     }
   });
 
@@ -368,15 +385,14 @@
 
   // ── Init ──
   async function init() {
-    try {
-      await fetchJobInfo();
-      createAudioElements();
-      // Show the player right away; stems stream in the background.
-      showContent();
-    } catch (err) {
-      console.error('Mixer init error:', err);
-      showError(err.message || 'Failed to load audio stems. The link may have expired.');
-    }
+    // Start downloading both stems immediately, in parallel with the job-info
+    // request, so the bytes are already in flight (often done) by the time the
+    // user taps Play. Errors here surface on the first Play attempt.
+    loadAudioBytes().catch(() => { /* handled on play */ });
+
+    await fetchJobInfo();
+    // Show the player right away; the download continues in the background.
+    showContent();
   }
 
   init();
