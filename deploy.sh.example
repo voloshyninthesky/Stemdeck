@@ -10,6 +10,7 @@ VPS_HOST="your-vps-ip"
 VPS_USER="root"
 VPS_PATH="/opt/stemdeck"
 SSH_KEY="~/.ssh/id_rsa"
+APP_URL="https://audio.stux.qzz.io"
 
 # Colors for styling terminal output
 GREEN='\033[0;32m'
@@ -30,7 +31,7 @@ if [ ! -f "$SSH_KEY" ]; then
 fi
 
 # 1. Syncing codebase to VPS via rsync
-echo -e "\n${YELLOW}[1/2] Syncing codebase to VPS...${NC}"
+echo -e "\n${YELLOW}[1/3] Syncing codebase to VPS...${NC}"
 rsync -avz \
   --exclude '.git' \
   --exclude 'node_modules' \
@@ -43,11 +44,15 @@ rsync -avz \
   -e "ssh -i $SSH_KEY -o StrictHostKeyChecking=no" \
   ./ ${VPS_USER}@${VPS_HOST}:${VPS_PATH}/
 
-# 2. Triggering container build and restart via SSH
-echo -e "\n${YELLOW}[2/2] Rebuilding and restarting Docker containers on VPS...${NC}"
+# 2. Install nginx site config for the public domain
+echo -e "\n${YELLOW}[2/3] Updating nginx config for ${APP_URL}...${NC}"
+ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no ${VPS_USER}@${VPS_HOST} "mkdir -p /home/ton-audio/htdocs/audio.stux.qzz.io /home/ton-audio/logs/nginx && cp ${VPS_PATH}/deploy/nginx/audio.stux.qzz.io.conf /etc/nginx/sites-enabled/audio.stux.qzz.io.conf && nginx -t && systemctl reload nginx"
+
+# 3. Triggering container build and restart via SSH
+echo -e "\n${YELLOW}[3/3] Rebuilding and restarting Docker containers on VPS...${NC}"
 ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no ${VPS_USER}@${VPS_HOST} "cd ${VPS_PATH} && docker compose up -d --build"
 
 echo -e "\n${GREEN}==============================================${NC}"
 echo -e "${GREEN}    Deployment Completed Successfully! 🎉    ${NC}"
 echo -e "${GREEN}==============================================${NC}"
-echo -e "Your app is live at: ${BLUE}http://${VPS_HOST}:8000${NC}\n"
+echo -e "Your app is live at: ${BLUE}${APP_URL}${NC}\n"
